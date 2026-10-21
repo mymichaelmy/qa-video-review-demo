@@ -94,7 +94,10 @@ function renderTracks(){
 function updatePlayhead(){
   const ruler=$('ruler'),width=ruler.clientWidth;
   $('playhead').style.left=`${ruler.offsetLeft+(duration?video.currentTime/duration*width:0)}px`;
-  $('playheadTime').textContent=fmt(video.currentTime);
+  $('playheadTime').textContent=fmt(video.currentTime,true);
+  $('playhead').setAttribute('aria-valuemax',String(duration));
+  $('playhead').setAttribute('aria-valuenow',String(video.currentTime));
+  $('playhead').setAttribute('aria-valuetext',fmt(video.currentTime,true));
   document.querySelectorAll('.track-segment').forEach(el=>{
     const x=issues.find(a=>a.id===el.dataset.issue);el.classList.toggle('is-current',video.currentTime>=x.start&&video.currentTime<x.end);
   });
@@ -122,7 +125,7 @@ function renderCurrent(force=false){
   $('annotations').innerHTML=visible.filter(x=>x.box).map(x=>`<button class="annotation-box" data-box="${x.id}" style="left:${x.box[0]*100}%;top:${x.box[1]*100}%;width:${x.box[2]*100}%;height:${x.box[3]*100}%;--issue-color:${types[x.type].color}" aria-label="${types[x.type].name}，查看问题"><span>${types[x.type].name} · 疑似</span></button>`).join('');
   const globals=visible.filter(x=>types[x.type].global);
   $('globalAlert').hidden=!globals.length;
-  $('globalAlert').innerHTML=globals.map(x=>`${icon('alert')}${types[x.type].name} · 全画面疑似问题`).join('　');
+  $('globalAlert').innerHTML=globals.map(x=>`${icon('alert')}${types[x.type].name} · 全画面疑似问题`).join('　')+(globals.length?'<button class="hide-marks" data-hide-marks title="隐藏所有画面标注，可按 H 恢复" aria-label="隐藏画面标注">×</button>':'');
 }
 function seek(time){
   if(!duration)return;
@@ -133,7 +136,9 @@ function seek(time){
 }
 function jumpIssue(direction=1){
   const list=issues.filter(x=>shownTypes.has(x.type));
-  const target=direction>0?list.find(x=>x.start>video.currentTime+.1):list.slice().reverse().find(x=>x.start<video.currentTime-.3);
+  const current=list.find(x=>video.currentTime>=x.start&&video.currentTime<x.end);
+  const pivot=current?current.start:video.currentTime;
+  const target=direction>0?list.find(x=>x.start>pivot+.001):list.slice().reverse().find(x=>x.start<pivot-.001);
   if(target)seek(target.start+.04);else toast(direction>0?'已是最后一处问题':'已是第一处问题');
 }
 async function togglePlay(){if(!duration){$('localVideoInput').click();return;}if(video.paused){try{await video.play();}catch{toast('暂时无法播放，请稍后重试。');}}else video.pause();}
@@ -169,7 +174,16 @@ $('backButton').onclick=()=>seek(video.currentTime-5);$('forwardButton').onclick
 $('scrubber').oninput=e=>seek(Number(e.target.value));
 $('speedSelect').onchange=e=>video.playbackRate=Number(e.target.value);
 $('muteButton').onclick=()=>{video.muted=!video.muted;$('muteButton').innerHTML=icon(video.muted?'mute':'volume');$('muteButton').setAttribute('aria-label',video.muted?'取消静音':'静音');};
-$('showMarks').onchange=()=>renderCurrent(true);
+function syncMarks(){
+  const shown=$('showMarks').checked;
+  $('fullscreenMarks').innerHTML=(shown?'隐藏标注':'显示标注')+' <kbd>H</kbd>';
+  $('fullscreenMarks').setAttribute('aria-pressed',String(shown));
+  renderCurrent(true);
+}
+function toggleMarks(){ $('showMarks').checked=!$('showMarks').checked;syncMarks(); }
+$('showMarks').onchange=syncMarks;
+$('fullscreenMarks').onclick=toggleMarks;
+$('globalAlert').onclick=e=>{if(e.target.closest('[data-hide-marks]')){$('showMarks').checked=false;syncMarks();}};
 $('fullscreenButton').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('videoStage').requestFullscreen();}catch{toast('当前浏览器暂不支持全屏。');}};
 new ResizeObserver(()=>{fitVideo();updatePlayhead();}).observe($('videoStage'));
 $('previousIssue').onclick=()=>jumpIssue(-1);$('nextIssue').onclick=()=>jumpIssue(1);$('jumpFirst').onclick=()=>jumpIssue(1);
@@ -177,7 +191,41 @@ $('trackRows').onclick=e=>{
   const segment=e.target.closest('[data-issue]');if(segment){const x=issues.find(x=>x.id===segment.dataset.issue);seek(x.start+.04);return;}
   const lane=e.target.closest('[data-lane]');if(lane){const rect=lane.getBoundingClientRect();seek((e.clientX-rect.left)/rect.width*duration);}
 };
-$('ruler').onclick=e=>{const rect=$('ruler').getBoundingClientRect();seek((e.clientX-rect.left)/rect.width*duration);};
+// Pointer capture keeps dragging active even when the pointer leaves the timeline.
+let timelineDrag=null;
+function seekFromPointer(event){
+  const rect=$('ruler').getBoundingClientRect();
+  if(rect.width&&duration)seek((event.clientX-rect.left)/rect.width*duration);
+}
+function finishTimelineDrag(event){
+  if(!timelineDrag||(event.pointerId!==undefined&&event.pointerId!==timelineDrag.id))return;
+  const drag=timelineDrag;timelineDrag=null;
+  $('playhead').classList.remove('dragging');
+  if(drag.element.hasPointerCapture(drag.id))drag.element.releasePointerCapture(drag.id);
+  if(drag.resume&&video.currentTime<duration)video.play().catch(()=>toast('请点击播放继续。'));
+}
+for(const element of [$('playhead'),$('ruler')]){
+  element.addEventListener('pointerdown',event=>{
+    if(!duration||event.button!==0||timelineDrag)return;
+    event.preventDefault();event.stopPropagation();
+    timelineDrag={id:event.pointerId,element,resume:!video.paused};
+    video.pause();priorTime=null;
+    element.setPointerCapture(event.pointerId);
+    $('playhead').classList.add('dragging');
+    seekFromPointer(event);
+  });
+  element.addEventListener('pointermove',event=>{
+    if(timelineDrag?.id===event.pointerId){event.preventDefault();seekFromPointer(event);}
+  });
+  element.addEventListener('pointerup',event=>{
+    if(timelineDrag?.id===event.pointerId)seekFromPointer(event);
+    finishTimelineDrag(event);
+  });
+  element.addEventListener('pointercancel',finishTimelineDrag);
+  element.addEventListener('lostpointercapture',finishTimelineDrag);
+  element.addEventListener('click',event=>event.stopPropagation());
+}
+window.addEventListener('blur',()=>finishTimelineDrag({}));
 $('filterButton').onclick=()=>{$('filterPopover').hidden=!$('filterPopover').hidden;};
 $('typeFilters').onchange=e=>{const i=Number(e.target.dataset.type);e.target.checked?shownTypes.add(i):shownTypes.delete(i);renderTracks();renderCurrent(true);};
 $('selectAllTypes').onclick=()=>{shownTypes=shownTypes.size?new Set():new Set(types.map((_,i)=>i));renderTracks();renderCurrent(true);};
@@ -268,7 +316,7 @@ function openModal(title,content){
 function closeModal(){$('modalOverlay').hidden=true;document.body.style.overflow='';returnFocus?.focus();}
 $('closeModal').onclick=closeModal;
 $('modalOverlay').onclick=e=>{if(e.target===$('modalOverlay'))closeModal();};
-function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>后退 / 前进 5 秒</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>上一个 / 下一个疑似问题</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>当前位置快捷提单</span><kbd>B</kbd><span>提交问题单</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。完成提单后，若原本正在播放，将自动继续回看。</p>`);}
+function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>提交问题单</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。完成提单后，若原本正在播放，将自动继续回看。</p>`);}
 $('helpButton').onclick=showHelp;$('helpFooter').onclick=showHelp;
 function showResources(){
   openModal('关联文件',`<div class="resource-card">${icon('video')}<div><strong>${escapeHtml(recordingName||'尚未选择录屏')}</strong><p>当前录屏 · ${fmt(duration)} · 所有问题单自动关联</p></div><button class="button" id="changeLocalVideo">更换录屏</button></div><div class="resource-card">${icon('file')}<div><strong id="resourceLogName">${escapeHtml(logFile?.name||'demo.log')}</strong><p id="resourceLogNote">${logFile?'已关联用户日志':'演示日志占位，非原始测试日志'}</p></div><label class="button" for="logUpload">关联真实日志</label><input id="logUpload" type="file" accept=".log,.txt,.zip,.json" hidden></div><p class="modal-caption">新增问题单会关联当前日志，并保存一份本地证据副本。关联日志不会更改已经生成的问题单。</p>`);
@@ -306,14 +354,15 @@ document.addEventListener('keydown',e=>{
     else if(!e.shiftKey&&document.activeElement===els.at(-1)){e.preventDefault();els[0].focus();}return;
   }
   if(bugOpen&&e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();$('bugForm').requestSubmit();return;}
-  if(bugOpen||modalOpen||e.target.matches('input,textarea,select,[contenteditable=true]')||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(bugOpen||modalOpen||e.target.matches('input:not([type=range]),textarea,select,[contenteditable=true]')||e.ctrlKey||e.metaKey||e.altKey)return;
   if(e.repeat)return;
   if(e.code==='Space'){e.preventDefault();togglePlay();}
-  if(e.key==='ArrowLeft'){e.preventDefault();replayEnd=null;seek(video.currentTime-5);}
-  if(e.key==='ArrowRight'){e.preventDefault();replayEnd=null;seek(video.currentTime+5);}
+  if(e.key==='ArrowLeft'){e.preventDefault();jumpIssue(-1);}
+  if(e.key==='ArrowRight'){e.preventDefault();jumpIssue(1);}
   if(e.key.toLowerCase()==='b'){e.preventDefault();openBug();}
-  if(e.key==='['){e.preventDefault();jumpIssue(-1);}
-  if(e.key===']'){e.preventDefault();jumpIssue(1);}
+  if(e.key==='['){e.preventDefault();seek(video.currentTime-5);}
+  if(e.key===']'){e.preventDefault();seek(video.currentTime+5);}
+  if(e.key.toLowerCase()==='h'){e.preventDefault();toggleMarks();}
 });
 window.addEventListener('beforeunload',persist);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)persist();});

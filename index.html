@@ -24,11 +24,12 @@
     <main>
       <section class="page-heading">
         <div><div class="eyebrow">VIDEO REVIEW <span>/ 01</span></div><h1>视频审核</h1><p>完整回看，同步发现。一段视频，一次审核。</p></div>
-        <div class="review-progress"><div><span>视频回看进度</span><strong id="reviewPercent">0<span>%</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">已回看 00:00 · 跳转不计入回看</small></div>
+        <div class="review-progress"><div><span title="实际播放过的不重复时长占视频总时长的比例；跳转略过的部分不计入，也不代表问题已处理完成。">已观看覆盖率 ⓘ</span><strong id="reviewPercent">0<span>%</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">已观看 00:00 / 00:00 · 重复不累计</small><small class="coverage-note">跳过的片段不计入 · 不代表问题处理进度</small></div>
       </section>
       <section class="recording-bar">
         <div class="recording-icon"><i data-icon="video"></i></div><div class="recording-name"><strong data-recording-name>尚未选择录屏</strong><span>本地录屏 <b>·</b> <span id="metaDuration">等待选择文件</span> <b>·</b> <span id="resolution">仅在本机读取</span></span></div>
-        <div class="recording-meta"><button class="button" id="chooseVideo">选择本地录屏</button><input id="localVideoInput" type="file" accept="video/*,.mp4,.mov,.webm,.m4v" hidden><span class="status-pill"><span class="dot"></span>检测结果为演示数据</span><span class="muted">13 类演示</span><span class="divider"></span><button class="text-button" id="resourcesButton"><i data-icon="link"></i>关联文件 <span>2</span></button></div>
+        <div class="recording-meta"><button class="button" id="chooseVideo">选择本地录屏</button><input id="localVideoInput" type="file" multiple accept="video/*,.mp4,.mov,.webm,.m4v" hidden><span class="status-pill"><span class="dot"></span>检测结果为演示数据</span><span class="muted">13 类演示</span><span class="divider"></span><button class="text-button" id="resourcesButton"><i data-icon="link"></i>关联文件 <span>2</span></button></div>
+        <div class="queue-navigator" id="queueNavigator" hidden><label for="videoQueue">视频队列 <span id="queuePosition">0 / 0</span></label><select id="videoQueue" aria-label="选择要审核的视频"></select><span id="queueHint" class="queue-hint"></span><button class="button primary" id="nextVideo">下一个视频 <i data-icon="arrow"></i></button></div>
       </section>
       <div class="review-grid">
         <section class="viewer-column">
@@ -36,7 +37,7 @@
             <div class="panel-top"><div><span class="live-dot"></span><strong>同步回看</strong><span class="small muted" id="playingStatus">已暂停</span></div><div class="panel-actions"><label class="switch-label" title="显示或隐藏局部框选与全画面提示（H），右侧详情保留"><input id="showMarks" type="checkbox" checked><span class="switch"></span>问题标注</label><button class="icon-button" id="fullscreenButton" title="全屏播放" aria-label="全屏播放"><i data-icon="expand"></i></button></div></div>
             <div class="video-stage" id="videoStage">
               <div class="video-canvas" id="videoCanvas"><video id="video" preload="auto" playsinline></video><div id="annotations" class="annotations"></div></div>
-              <div id="localVideoPrompt" class="local-video-prompt"><i data-icon="video"></i><h2>选择一段本地录屏，开始体验</h2><p>视频仅在你的浏览器中播放，不会上传到服务器。<br>选择文件后将按时长展示模拟问题标注。</p><button class="button primary" id="chooseVideoCenter">选择本地录屏</button><small>建议使用 MP4（H.264）· 也可选择浏览器支持的视频格式</small></div><button class="center-play" hidden id="centerPlay" aria-label="播放视频"><i data-icon="play"></i></button>
+              <div id="localVideoPrompt" class="local-video-prompt"><i data-icon="video"></i><h2>选择本地录屏，开始审核</h2><p>视频仅在你的浏览器中播放，不会上传到服务器。<br>可一次多选，按队列逐段审核；问题标注为模拟数据。</p><button class="button primary" id="chooseVideoCenter">选择本地录屏</button><small>建议使用 MP4（H.264）· 也可选择浏览器支持的视频格式</small></div><button class="center-play" hidden id="centerPlay" aria-label="播放视频"><i data-icon="play"></i></button>
               <div class="video-watermark">AI ASSISTED REVIEW</div>
               <button class="fullscreen-marks" id="fullscreenMarks" aria-pressed="true" title="显示或隐藏画面标注（H）">隐藏标注 <kbd>H</kbd></button><div id="globalAlert" class="global-alert" hidden></div>
               <div id="videoError" class="video-error" hidden>视频无法读取，请重新选择浏览器支持的录屏格式。<button class="button" id="retryVideo">重新加载</button></div>

@@ -54,6 +54,7 @@ try {saved=JSON.parse(localStorage.getItem('qa-pages-demo-v1')||'{}');}catch{}
 let tickets=Array.isArray(saved.tickets)?saved.tickets:[];
 let reviews=saved.reviews||{},decisions={},watched=new Set();
 let recordingName='',recordingKey='',recordingUrl='',recordingFile=null;
+let recordingQueue=[],queueIndex=-1;
 let issues=[],duration=0,activeKey='',selectedIssue=null,clipPoint=0,padding=2,clipStart=0,clipEnd=0;
 let priorTime=null,shownTypes=new Set(types.map((_,i)=>i)),returnFocus=null,wasPlaying=false,saving=false;
 let logFile=null,attachments=[],toastTimeout,previewing=false;
@@ -150,7 +151,7 @@ function syncPlayback(){
 function updateProgress(){
   const seconds=Math.min(duration,watched.size*.25),pct=duration?Math.round(seconds/duration*100):0;
   $('reviewPercent').innerHTML=`${pct}<span>%</span>`;$('reviewProgress').style.width=`${pct}%`;
-  $('reviewCoverage').textContent=`已回看 ${fmt(seconds)} · 跳转不计入回看`;
+  $('reviewCoverage').textContent=`已观看 ${fmt(seconds)} / ${fmt(duration)} · 重复不累计`;
 }
 video.addEventListener('loadedmetadata',makeIssues);
 video.addEventListener('timeupdate',()=>{
@@ -322,7 +323,7 @@ function showResources(){
   openModal('关联文件',`<div class="resource-card">${icon('video')}<div><strong>${escapeHtml(recordingName||'尚未选择录屏')}</strong><p>当前录屏 · ${fmt(duration)} · 所有问题单自动关联</p></div><button class="button" id="changeLocalVideo">更换录屏</button></div><div class="resource-card">${icon('file')}<div><strong id="resourceLogName">${escapeHtml(logFile?.name||'demo.log')}</strong><p id="resourceLogNote">${logFile?'已关联用户日志':'演示日志占位，非原始测试日志'}</p></div><label class="button" for="logUpload">关联真实日志</label><input id="logUpload" type="file" accept=".log,.txt,.zip,.json" hidden></div><p class="modal-caption">新增问题单会关联当前日志，并保存一份本地证据副本。关联日志不会更改已经生成的问题单。</p>`);
   $('changeLocalVideo').onclick=()=>{closeModal();$('localVideoInput').click();};
   $('logUpload').disabled=!recordingKey;
-  $('logUpload').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{await putEvidence('log:'+recordingKey,file);logFile=file;$('resourceLogName').textContent=file.name;$('resourceLogNote').textContent='已关联用户日志';toast('日志已关联并保存在本地。');}catch{toast('日志保存失败，请重试。');}};
+  $('logUpload').onchange=async e=>{const file=e.target.files[0];if(!file)return;const key=recordingKey;try{await putEvidence('log:'+key,file);if(key!==recordingKey)return;logFile=file;$('resourceLogName').textContent=file.name;$('resourceLogNote').textContent='已关联用户日志';toast('日志已关联并保存在本地。');}catch{toast('日志保存失败，请重试。');}};
 }
 $('resourcesButton').onclick=showResources;
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
@@ -368,24 +369,57 @@ window.addEventListener('beforeunload',persist);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)persist();});
 
 updateCounts();renderTracks();renderCurrent(true);
-$('chooseVideo').onclick=$('chooseVideoCenter').onclick=()=>$('localVideoInput').click();
-$('localVideoInput').onchange=async event=>{
-  const file=event.target.files[0];event.target.value='';
-  if(!file)return;
-  if(!file.type.startsWith('video/')&&!/\.(mp4|mov|webm|m4v)$/i.test(file.name)){toast('请选择视频文件。');return;}
+function syncQueue(){
+  $('queueNavigator').hidden=!recordingQueue.length;
+  $('queuePosition').textContent=`${queueIndex+1} / ${recordingQueue.length}`;
+  $('videoQueue').innerHTML=recordingQueue.map((entry,i)=>`<option value="${i}" ${i===queueIndex?'selected':''}>${i+1}. ${escapeHtml(entry.name)}</option>`).join('');
+  const next=recordingQueue[queueIndex+1];
+  $('queueHint').textContent=next?`下一段：${next.name}`:'已到队列末尾，可继续添加录屏';
+  $('nextVideo').title=next?`保存当前记录，切换至 ${next.name}`:'选择更多本地录屏，继续审核';
+  $('chooseVideo').textContent=recordingQueue.length?'添加录屏':'选择本地录屏';
+}
+async function loadRecording(index){
+  const entry=recordingQueue[index];if(!entry)return;
   video.pause();clipVideo.pause();persist();
   const oldUrl=recordingUrl;
-  recordingFile=file;recordingName=file.name;recordingKey=JSON.stringify([file.name,file.size,file.lastModified]);
+  queueIndex=index;
+  recordingFile=entry.file||null;recordingName=entry.name;recordingKey=entry.key;
   const review=reviews[recordingKey]||{};decisions=review.decisions||{};watched=new Set(review.watched||[]);
-  logFile=null;issues=[];duration=0;priorTime=null;replayEnd=null;activeKey='';
+  logFile=null;issues=[];duration=0;priorTime=null;replayEnd=null;activeKey='';selectedIssue=null;
   $('createBug').disabled=true;$('scrubber').disabled=true;$('playButton').disabled=true;
   $('centerPlay').hidden=true;$('localVideoPrompt').hidden=true;$('videoError').hidden=true;
-  $('metaDuration').textContent='正在读取';$('currentTime').textContent='00:00';$('totalTime').textContent='00:00';
+  $('metaDuration').textContent='正在读取';$('resolution').textContent='正在读取';$('currentTime').textContent='00:00';$('totalTime').textContent='00:00';
   $('scrubber').value=0;$('scrubber').style.background='#393b45';
   document.querySelectorAll('[data-recording-name]').forEach(el=>el.textContent=recordingName);
-  recordingUrl=URL.createObjectURL(file);video.src=recordingUrl;clipVideo.src=recordingUrl;
-  video.load();clipVideo.load();if(oldUrl)URL.revokeObjectURL(oldUrl);
-  renderTracks();renderCurrent(true);updateCounts();updateProgress();
+  recordingUrl=entry.file?URL.createObjectURL(entry.file):entry.url;
+  video.src=recordingUrl;clipVideo.src=recordingUrl;
+  video.load();clipVideo.load();
+  video.playbackRate=Number($('speedSelect').value)||1;
+  if(oldUrl?.startsWith('blob:'))URL.revokeObjectURL(oldUrl);
+  renderTracks();renderCurrent(true);updateCounts();updateProgress();syncPlayback();syncQueue();
   const key=recordingKey;
   try{const log=await getEvidence('log:'+key);if(key===recordingKey)logFile=log||null;}catch{}
+}
+function addRecordings(files){
+  const valid=[...files].filter(file=>file.type.startsWith('video/')||/\.(mp4|mov|webm|m4v)$/i.test(file.name));
+  if(!valid.length){if(files.length)toast('请选择视频文件。');return;}
+  let first=-1;
+  for(const file of valid){
+    const key=JSON.stringify([file.name,file.size,file.lastModified]);
+    let index=recordingQueue.findIndex(entry=>entry.key===key);
+    if(index<0){index=recordingQueue.length;recordingQueue.push({file,name:file.name,key});}
+    if(first<0)first=index;
+  }
+  loadRecording(first);
+  toast(`已加入视频队列 · 共 ${recordingQueue.length} 段，文件仅在本机读取。`);
+}
+$('chooseVideo').onclick=$('chooseVideoCenter').onclick=()=>$('localVideoInput').click();
+$('localVideoInput').onchange=event=>{
+  const files=[...event.target.files];event.target.value='';addRecordings(files);
 };
+$('videoQueue').onchange=event=>loadRecording(Number(event.target.value));
+$('nextVideo').onclick=()=>{
+  if(recordingQueue[queueIndex+1])loadRecording(queueIndex+1);
+  else $('localVideoInput').click();
+};
+syncQueue();

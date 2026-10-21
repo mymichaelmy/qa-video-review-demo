@@ -20,3 +20,13 @@
 .video-stage:fullscreen .video-watermark{top:58px}
 .video-stage:fullscreen .global-alert{max-width:calc(100% - 190px)}
 .page-footer>div{flex-wrap:wrap;justify-content:flex-end;row-gap:8px}
+
+/* Keep recording navigation separate from playback and issue navigation. */
+.recording-bar{flex-wrap:wrap}
+.queue-navigator{flex:0 0 100%;display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);padding-top:12px;margin-top:4px;min-width:0}
+.queue-navigator label{font-size:11px;color:#aab3c3;white-space:nowrap}.queue-navigator label span{color:var(--amber);margin-left:8px;font-variant-numeric:tabular-nums}
+.queue-navigator select{min-width:0;max-width:340px;flex:1;border:1px solid #3b404d;border-radius:5px;background:#151922;padding:8px 10px;color:#d3d8e3;font-size:11px}
+.queue-hint{font-size:10px;color:#8d99ad;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.queue-navigator .button{margin-left:auto;white-space:nowrap;font-size:11px}
+.review-progress .coverage-note{font-size:9px;color:#8d99ad;margin-top:5px;display:block}
+@media(max-width:720px){.queue-hint{display:none}.queue-navigator{gap:8px}.queue-navigator select{max-width:none}.queue-navigator label{font-size:10px}.queue-navigator label span{margin-left:3px}}

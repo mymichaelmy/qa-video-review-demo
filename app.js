@@ -478,7 +478,7 @@ function scopedTickets(){
   return tickets.filter(t=>!t.cancelledAt&&(reportContext?t.reportId===reportContext.id:!t.reportId&&recordingQueue.some(entry=>entry.key===t.recordingKey)));
 }
 function bugCard(t){
-  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status">${t.findingId?'已确认 Bug':'已记录'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button><button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button><button data-ticket-action="undo" data-id="${escapeHtml(t.id)}">撤销</button></div></article>`;
+  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status">${t.findingId?'已确认 Bug':'已记录'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-card-actions"><button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button><button data-ticket-action="undo" data-id="${escapeHtml(t.id)}">撤销</button></div></article>`;
 }
 function renderFrameBugs(){
   const list=scopedTickets().filter(t=>t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end&&!activeIssues().some(x=>decisions[x.id]?.ticketId===t.id));
@@ -552,7 +552,6 @@ async function handleTicketAction(e){
   const t=scopedTickets().find(t=>t.id===button.dataset.id);if(!t)return;
   const action=button.dataset.ticketAction;
   if(action==='undo')undoTicket(t);
-  if(action==='evidence')await handleEvidenceAction({target:{closest:selector=>selector==='[data-evidence]'?{dataset:{evidence:t.id}}:null}});
   if(action==='edit')editTicket(t);
 }
 $('currentTab').onclick=()=>setSidebarView('current');$('allBugsTab').onclick=()=>setSidebarView('all');

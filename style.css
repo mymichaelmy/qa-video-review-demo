@@ -44,3 +44,5 @@
 @media(max-width:700px){.platform-sidebar{display:none}.workspace{margin-left:0}.topbar{padding:0 12px}.platform-top-user{display:none}main{padding:16px 12px}.page-heading{flex-wrap:wrap}.heading-actions{width:100%;justify-content:space-between}.review-progress{display:block;width:230px;max-width:none}.recording-meta{flex-direction:row;align-items:center}.queue-navigator{max-width:100%}.breadcrumbs{font-size:11px}.recording-name>strong{max-width:65vw}.details-scroll #currentIssues{display:block}}
 
 .page-footer{justify-content:flex-end}.details-panel{min-height:0}.bug-status{color:var(--green);background:#27ae601a}
+
+.handled-state{gap:12px}.handled-state>span{margin-right:auto}

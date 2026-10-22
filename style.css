@@ -48,3 +48,12 @@
 .handled-state{gap:12px}.handled-state>span{margin-right:auto}
 
 [data-ticket-id]{cursor:pointer}[data-ticket-id]:hover{border-color:#7a8b9e}[data-ticket-id]:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* Shared problem cards and persistent sidebar actions. */
+.details-panel{position:sticky;top:16px;align-self:start;min-height:0;max-height:calc(100dvh - 32px)}
+.details-panel .details-top{flex-shrink:0}
+.details-panel .details-scroll{min-height:0;max-height:none;overflow-y:auto;flex:1}
+.review-actions{display:flex;gap:10px;flex-shrink:0;padding:14px;border-top:1px solid var(--border);background:#101b27}
+.review-actions .button{flex:1;white-space:nowrap}
+.issue-card{overflow-wrap:anywhere}.issue-recording{font-size:10px;color:var(--muted);margin-top:9px;line-height:1.6}
+@media(max-width:1000px){.details-panel{position:relative;top:auto;height:min(640px,80dvh);max-height:none}.details-panel .issue-card{margin-bottom:12px}}

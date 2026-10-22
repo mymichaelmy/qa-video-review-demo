@@ -76,8 +76,6 @@ function persist(){
 function toast(message){clearTimeout(toastTimeout);$('toast').textContent=message;$('toast').hidden=false;toastTimeout=setTimeout(()=>$('toast').hidden=true,4200);}
 function updateCounts(){
   renderBugSidebar();
-  const handled=issues.filter(x=>isHandled(decisions[x.id])).length;
-  $('handledSummary').textContent=`${handled} / ${issues.length} 个问题已处理`;
   updateProgress();
 }
 function activeIssues(){return issues.filter(x=>shownTypes.has(x.type)&&video.currentTime>=x.start&&video.currentTime<x.end);}
@@ -174,7 +172,6 @@ function updateProgress(){
   $('reviewProgress').style.width=`${pct}%`;
   const counts=status=>issues.filter(x=>decisions[x.id]?.status===status).length;
   $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 跳过 ${counts('ignored')} · 误报 ${counts('false_positive')+counts('dismissed')}`;
-  $('reviewProgressNote').textContent=duration?(total?(handled===total?'当前视频的问题已全部处理':`当前视频还有 ${total-handled} 个问题待处理`):'当前视频没有检测到疑似问题'):'确认 Bug、跳过、误报均计为已处理';
 }
 function persistReportProgress(){
   if(!reportContext||!recordingQueue.length)return;
@@ -189,7 +186,6 @@ function persistReportProgress(){
   progress.complete=recordingQueue.every(e=>progress.videos[e.id]?.handled===e.findingCount);
   progress.updatedAt=new Date().toISOString();
   localStorage.setItem(storageKey,JSON.stringify(progress));
-  $('reportProgress').textContent=`整份报告 ${progress.handled} / ${progress.total} 已处理`;
 }
 video.addEventListener('loadedmetadata',makeIssues);
 video.addEventListener('timeupdate',()=>{
@@ -337,7 +333,7 @@ $('bugForm').onsubmit=async e=>{
   if(!title||!qa){toast('请填写问题标题和审核人。');button.disabled=false;return;}
   saving=true;
   const id=`DEMO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-  const ticket={id,title,source:selectedIssue?'detected':'manual',submissionStatus:'draft',reviewedAt:null,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
+  const ticket={id,title,source:selectedIssue?'detected':'manual',submissionStatus:'recorded',type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
   try{
     const shot=await screenshot();
     const fallbackLog=new Blob([`DEMO LOG — 示例数据，非真实测试日志\nRecording: ${recordingName}\nEvent point: ${clipPoint.toFixed(3)}s\nClip: ${clipStart.toFixed(3)}s – ${clipEnd.toFixed(3)}s\nType: ${ticket.type}\n`],{type:'text/plain'});
@@ -345,7 +341,7 @@ $('bugForm').onsubmit=async e=>{
     tickets.push(ticket);latestTicketId=id;if(selectedIssue)decisions[selectedIssue.id]={status:'reported',ticketId:id};
     persist();updateCounts();renderTracks();renderCurrent(true);closeBug(false);
     setSidebarView('all');$('reviewListScroll').scrollTop=0;
-    toast('已加入右侧待提交列表，复核后统一提交。');
+    toast('Bug 已记录，可在右侧查看和编辑。');
   }catch(err){toast('证据保存失败，请检查浏览器可用存储空间后重试。');}
   finally{button.disabled=false;saving=false;}
 };
@@ -357,7 +353,7 @@ function openModal(title,content){
 function closeModal(){$('modalOverlay').hidden=true;document.body.style.overflow='';returnFocus?.focus();}
 $('closeModal').onclick=closeModal;
 $('modalOverlay').onclick=e=>{if(e.target===$('modalOverlay'))closeModal();};
-function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>保存 Bug 草稿</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。保存后会在右侧显示 Bug 草稿，复核后统一提交。</p>`);}
+function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>保存 Bug</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。保存后会在右侧显示已记录的 Bug。</p>`);}
 $('helpButton').onclick=showHelp;$('helpFooter').onclick=showHelp;
 function showResources(){
   openModal('关联文件',`<div class="resource-card">${icon('video')}<div><strong>${escapeHtml(recordingName||'尚未选择录屏')}</strong><p>当前录屏 · ${fmt(duration)} · 所有问题单自动关联</p></div><button class="button" id="changeLocalVideo">更换录屏</button></div><div class="resource-card">${icon('file')}<div><strong id="resourceLogName">${escapeHtml(logFile?.name||'demo.log')}</strong><p id="resourceLogNote">${logFile?'已关联用户日志':'演示日志占位，非原始测试日志'}</p></div><label class="button" for="logUpload">关联真实日志</label><input id="logUpload" type="file" accept=".log,.txt,.zip,.json" hidden></div><p class="modal-caption">新增问题单会关联当前日志，并保存一份本地证据副本。关联日志不会更改已经生成的问题单。</p>`);
@@ -470,8 +466,7 @@ function scopedTickets(){
   return tickets.filter(t=>reportContext?t.reportId===reportContext.id:!t.reportId&&recordingQueue.some(entry=>entry.key===t.recordingKey));
 }
 function bugCard(t){
-  const submitted=t.submissionStatus==='submitted';
-  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status ${submitted?'submitted':t.reviewedAt?'reviewed':''}">${submitted?'已提交 · 演示':t.reviewedAt?'已复核 · 待提交':'待复核 · 草稿'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="replay" data-id="${escapeHtml(t.id)}">回看片段</button><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button>${!submitted?`<button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button>`:''}</div>${!submitted?`<button class="review-check ${t.reviewedAt?'checked':''}" data-ticket-action="review" data-id="${escapeHtml(t.id)}" aria-pressed="${!!t.reviewedAt}">${icon('check')}${t.reviewedAt?'已复核，点击取消':'标记已复核'}</button>`:''}</article>`;
+  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status">已记录</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="replay" data-id="${escapeHtml(t.id)}">回看片段</button><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button><button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button></div></article>`;
 }
 function renderFrameBugs(){
   const list=scopedTickets().filter(t=>t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end&&!activeIssues().some(x=>decisions[x.id]?.ticketId===t.id));
@@ -479,14 +474,10 @@ function renderFrameBugs(){
   $('emptyState').hidden=activeIssues().length>0||list.length>0;
 }
 function renderBugSidebar(){
-  const list=scopedTickets(),drafts=list.filter(t=>t.submissionStatus!=='submitted'),reviewed=drafts.filter(t=>t.reviewedAt);
+  const list=scopedTickets();
   $('ticketCount').textContent=list.length;
   $('allBugsList').innerHTML=list.slice().reverse().map(bugCard).join('')||'<div class="empty-state"><h3>还没有记录 Bug</h3><p>确认检测问题或按 B 手动记录后，Bug 会显示在这里。</p></div>';
   $('bugListScope').textContent=reportContext?'本报告全部视频 · 按记录时间排列':'当前视频队列 · 按记录时间排列';
-  $('draftSummary').textContent=drafts.length?`${drafts.length} 个 Bug 待提交`:(list.length?'本次 Bug 已全部提交':'暂无待提交 Bug');
-  $('reviewSummary').textContent=drafts.length?`已复核 ${reviewed.length} / ${drafts.length} · 请逐条检查片段与证据`:'确认问题后，在此集中复核并提交';
-  $('submitAllBugs').disabled=!drafts.length||reviewed.length!==drafts.length;
-  $('submitAllBugs').textContent=drafts.length?`正式提交（${drafts.length}）`:'正式提交';
   renderFrameBugs();
 }
 function setSidebarView(view){
@@ -506,8 +497,8 @@ async function replayTicket(t){
   await loadRecording(index);
 }
 function editTicket(t){
-  openModal('编辑 Bug 草稿',`<form id="editTicketForm"><div class="field"><label for="editTitle">问题标题</label><input id="editTitle" required maxlength="120" value="${escapeHtml(t.title)}"></div><div class="field-row"><div class="field"><label for="editQa">审核人</label><input id="editQa" required value="${escapeHtml(t.qa)}"></div><div class="field"><label for="editPriority">优先级</label><select id="editPriority">${['P2 · 一般','P1 · 严重','P0 · 阻塞','P3 · 轻微'].map(v=>`<option ${v===t.priority?'selected':''}>${v}</option>`).join('')}</select></div></div><div class="field"><label for="editNotes">备注信息</label><textarea id="editNotes" rows="5">${escapeHtml(t.notes)}</textarea></div><p class="modal-caption">修改后需要重新复核。原片段、截图与附件保持关联。</p><div class="modal-action-row"><button class="button primary" type="submit">保存修改</button></div></form>`);
-  $('editTicketForm').onsubmit=e=>{e.preventDefault();const title=$('editTitle').value.trim(),qa=$('editQa').value.trim();if(!title||!qa)return;t.title=title;t.qa=qa;t.priority=$('editPriority').value;t.notes=$('editNotes').value.trim();t.reviewedAt=null;persist();renderCurrent(true);renderBugSidebar();closeModal();};
+  openModal('编辑 Bug',`<form id="editTicketForm"><div class="field"><label for="editTitle">问题标题</label><input id="editTitle" required maxlength="120" value="${escapeHtml(t.title)}"></div><div class="field-row"><div class="field"><label for="editQa">审核人</label><input id="editQa" required value="${escapeHtml(t.qa)}"></div><div class="field"><label for="editPriority">优先级</label><select id="editPriority">${['P2 · 一般','P1 · 严重','P0 · 阻塞','P3 · 轻微'].map(v=>`<option ${v===t.priority?'selected':''}>${v}</option>`).join('')}</select></div></div><div class="field"><label for="editNotes">备注信息</label><textarea id="editNotes" rows="5">${escapeHtml(t.notes)}</textarea></div><p class="modal-caption">原片段、截图与附件保持关联。</p><div class="modal-action-row"><button class="button primary" type="submit">保存修改</button></div></form>`);
+  $('editTicketForm').onsubmit=e=>{e.preventDefault();const title=$('editTitle').value.trim(),qa=$('editQa').value.trim();if(!title||!qa)return;t.title=title;t.qa=qa;t.priority=$('editPriority').value;t.notes=$('editNotes').value.trim();persist();renderCurrent(true);renderBugSidebar();closeModal();};
 }
 async function handleTicketAction(e){
   const button=e.target.closest('[data-ticket-action]');if(!button)return;
@@ -515,23 +506,8 @@ async function handleTicketAction(e){
   const action=button.dataset.ticketAction;
   if(action==='replay')await replayTicket(t);
   if(action==='evidence')await handleEvidenceAction({target:{closest:selector=>selector==='[data-evidence]'?{dataset:{evidence:t.id}}:null}});
-  if(action==='edit'&&t.submissionStatus!=='submitted')editTicket(t);
-  if(action==='review'&&t.submissionStatus!=='submitted'){t.reviewedAt=t.reviewedAt?null:new Date().toISOString();persist();renderCurrent(true);renderBugSidebar();}
-}
-function confirmSubmission(){
-  const drafts=scopedTickets().filter(t=>t.submissionStatus!=='submitted');
-  if(!drafts.length||drafts.some(t=>!t.reviewedAt)){setSidebarView('all');toast('请先逐条复核右侧全部 Bug。');return;}
-  const ids=drafts.map(t=>t.id);
-  openModal(`正式提交 ${drafts.length} 个 Bug`, `<p class="submission-intro">以下 Bug 已完成复核，将统一标记为已提交。</p><ol class="submission-list">${drafts.map(t=>`<li><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.recording)} · ${fmt(t.point)} · ${escapeHtml(t.priority)}</small></li>`).join('')}</ol><p class="modal-caption">当前为交互演示，提交结果保存在本机，未连接外部 Bug 系统。</p><div class="modal-action-row"><button class="button subtle" id="returnToReview">返回复核</button><button class="button primary" id="confirmSubmitBugs">确认提交</button></div>`);
-  $('returnToReview').onclick=()=>{closeModal();setSidebarView('all');};
-  $('confirmSubmitBugs').onclick=()=>{
-    const pending=scopedTickets().filter(t=>ids.includes(t.id)&&t.submissionStatus!=='submitted');
-    if(pending.length!==ids.length||pending.some(t=>!t.reviewedAt)){closeModal();renderBugSidebar();toast('草稿状态已变化，请重新复核。');return;}
-    const submittedAt=new Date().toISOString();pending.forEach(t=>{t.submissionStatus='submitted';t.submittedAt=submittedAt;});
-    persist();renderCurrent(true);renderBugSidebar();closeModal();setSidebarView('all');toast(`已完成 ${pending.length} 个 Bug 的本地演示提交。`);
-  };
+  if(action==='edit')editTicket(t);
 }
 $('currentTab').onclick=()=>setSidebarView('current');$('allBugsTab').onclick=()=>setSidebarView('all');
 $('allBugsList').onclick=$('frameBugs').onclick=handleTicketAction;
-$('submitAllBugs').onclick=confirmSubmission;
 for(const tab of [$('currentTab'),$('allBugsTab')])tab.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();e.stopPropagation();const all=tab.id==='currentTab';setSidebarView(all?'all':'current');$(all?'allBugsTab':'currentTab').focus();}};

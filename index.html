@@ -16,10 +16,10 @@
       <div class="top-actions"><span class="saved"><span class="dot"></span>记录仅存本机</span><span class="platform-top-user"><span class="avatar">QA</span>审核工作台</span></div>
     </header>
     <main>
-      <section id="reportContext" class="report-context" hidden><div><a href="./report-list.html#report-list">← 报告列表</a><strong id="reportTitle"></strong><span id="reportProgress"></span></div><p id="reportSourceNote"></p></section>
+      <section id="reportContext" class="report-context" hidden><div><a href="./report-list.html#report-list">← 报告列表</a><strong id="reportTitle"></strong></div><p id="reportSourceNote"></p></section>
       <section class="page-heading">
         <div><h1>视频审核</h1><p id="reviewSubtitle">报告列表 / 视频审核</p></div>
-        <div class="heading-actions"><div class="review-progress"><div><span>问题处理进度</span><strong id="reviewPercent" aria-live="polite">0<span> / 0</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">确认 Bug 0 · 跳过 0 · 误报 0</small><small class="coverage-note" id="reviewProgressNote">确认 Bug、跳过、误报均计为已处理</small></div><button class="button primary next-video-button" id="nextVideo">下一个视频 <i data-icon="arrow"></i></button></div>
+        <div class="heading-actions"><div class="review-progress"><div><span>问题处理进度</span><strong id="reviewPercent" aria-live="polite">0<span> / 0</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">确认 Bug 0 · 跳过 0 · 误报 0</small></div><button class="button primary next-video-button" id="nextVideo">下一个视频 <i data-icon="arrow"></i></button></div>
       </section>
       <section class="recording-bar">
         <div class="recording-icon"><i data-icon="video"></i></div><div class="recording-name"><strong data-recording-name>尚未选择录屏</strong><span>本地录屏 <b>·</b> <span id="metaDuration">等待选择文件</span> <b>·</b> <span id="resolution">仅在本机读取</span></span></div>
@@ -51,10 +51,9 @@
         <aside class="details-panel">
           <div class="details-top"><div class="review-tabs" role="tablist" aria-label="问题列表视图"><button role="tab" id="currentTab" aria-selected="true" aria-controls="currentPane">当前帧</button><button role="tab" id="allBugsTab" aria-selected="false" aria-controls="allBugsPane">全部 Bug <span id="ticketCount">0</span></button></div><p id="currentSummary">随视频播放，同步展示检测问题</p></div>
           <div class="details-scroll" id="reviewListScroll"><section id="currentPane" role="tabpanel" aria-labelledby="currentTab"><div class="frame-heading">当前帧 <span id="detailTime">00:00</span></div><div id="currentIssues"></div><div id="frameBugs"></div><div id="emptyState" class="empty-state"><h3>当前画面暂无疑似问题</h3><p>继续回看，也可按 <kbd>B</kbd> 手动记录。</p><button class="button subtle" id="jumpFirst">跳转到下一处问题</button></div></section><section id="allBugsPane" role="tabpanel" aria-labelledby="allBugsTab" hidden><p class="bug-list-scope" id="bugListScope"></p><div id="allBugsList"></div></section></div>
-          <div class="review-submit-footer"><div><strong id="draftSummary">暂无待提交 Bug</strong><span id="reviewSummary">记录后会显示在这里，复核后统一提交</span></div><button class="button primary" id="submitAllBugs" disabled>正式提交</button><small>演示提交仅保存到本机</small></div>
         </aside>
       </div>
-      <footer class="page-footer"><span><span class="dot"></span><span id="handledSummary">0 个问题已处理</span></span><div><span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>←</kbd><kbd>→</kbd> 切换问题</span><span><kbd>[</kbd><kbd>]</kbd> 跳转 5 秒</span><span><kbd>H</kbd> 隐藏标注</span><span><kbd>B</kbd> 快捷提单</span><button class="text-button" id="helpFooter">全部快捷键 <i data-icon="arrow"></i></button></div></footer>
+      <footer class="page-footer"><div><span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>←</kbd><kbd>→</kbd> 切换问题</span><span><kbd>[</kbd><kbd>]</kbd> 跳转 5 秒</span><span><kbd>H</kbd> 隐藏标注</span><span><kbd>B</kbd> 快捷提单</span><button class="text-button" id="helpFooter">全部快捷键 <i data-icon="arrow"></i></button></div></footer>
     </main>
   </div>
   <div class="overlay" id="bugOverlay" hidden>
@@ -70,7 +69,7 @@
         <div class="field"><label>关联证据</label><div class="evidence-item"><i data-icon="video"></i><div><strong data-recording-name>尚未选择录屏</strong><span id="evidenceRange"></span></div><span class="linked-tag">已关联</span></div><div class="evidence-item"><i data-icon="file"></i><div><strong id="logName">demo.log</strong><span id="logNote">演示日志 · 可在关联文件中替换</span></div><span class="linked-tag">已关联</span></div></div>
         <div class="field"><label>补充附件 <span class="muted">（图片 / 视频）</span></label><label class="upload-zone" for="attachments"><i data-icon="upload"></i><span>选择本地图片或视频</span><input type="file" id="attachments" accept="image/*,video/*" multiple hidden></label><div id="attachmentList"></div></div>
         <div class="demo-note"><i data-icon="info"></i><span>视频、日志、截图和附件均只在本机处理；不向服务器上传。</span></div>
-      </div><div class="drawer-footer"><button type="button" class="button subtle" id="cancelBug">取消</button><button class="button primary" type="submit"><i data-icon="check"></i>保存到待提交列表 <kbd>⌘ ↵</kbd></button></div></form>
+      </div><div class="drawer-footer"><button type="button" class="button subtle" id="cancelBug">取消</button><button class="button primary" type="submit"><i data-icon="check"></i>保存 Bug <kbd>⌘ ↵</kbd></button></div></form>
     </section>
   </div>
   <div class="overlay modal-overlay" id="modalOverlay" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-header"><h2 id="modalTitle"></h2><button class="icon-button" id="closeModal" aria-label="关闭窗口"><i data-icon="close"></i></button></div><div id="modalContent"></div></section></div>

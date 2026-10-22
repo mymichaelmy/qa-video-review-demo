@@ -22,9 +22,10 @@
       <div class="top-actions"><span class="saved"><span class="dot"></span>记录仅存本机</span><button class="button subtle" id="ticketsButton"><i data-icon="ticket"></i>Bug 单 <span id="ticketCount">0</span></button></div>
     </header>
     <main>
+      <section id="reportContext" class="report-context" hidden><div><a href="./report-list.html#report-list">← 报告列表</a><strong id="reportTitle"></strong><span id="reportProgress"></span></div><p id="reportSourceNote"></p></section>
       <section class="page-heading">
         <div><div class="eyebrow">VIDEO REVIEW <span>/ 01</span></div><h1>视频审核</h1><p>完整回看，同步发现。一段视频，一次审核。</p></div>
-        <div class="review-progress"><div><span title="实际播放过的不重复时长占视频总时长的比例；跳转略过的部分不计入，也不代表问题已处理完成。">已观看覆盖率 ⓘ</span><strong id="reviewPercent">0<span>%</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">已观看 00:00 / 00:00 · 重复不累计</small><small class="coverage-note">跳过的片段不计入 · 不代表问题处理进度</small></div>
+        <div class="review-progress"><div><span>问题处理进度</span><strong id="reviewPercent" aria-live="polite">0<span> / 0</span></strong></div><div class="progress-track"><div id="reviewProgress"></div></div><small id="reviewCoverage">确认 Bug 0 · 忽略 0 · 误报 0</small><small class="coverage-note" id="reviewProgressNote">确认 Bug、忽略、误报均计为已处理</small></div>
       </section>
       <section class="recording-bar">
         <div class="recording-icon"><i data-icon="video"></i></div><div class="recording-name"><strong data-recording-name>尚未选择录屏</strong><span>本地录屏 <b>·</b> <span id="metaDuration">等待选择文件</span> <b>·</b> <span id="resolution">仅在本机读取</span></span></div>

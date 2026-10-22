@@ -55,18 +55,29 @@ let tickets=Array.isArray(saved.tickets)?saved.tickets:[];
 let reviews=saved.reviews||{},decisions={},watched=new Set();
 let recordingName='',recordingKey='',recordingUrl='',recordingFile=null;
 let recordingQueue=[],queueIndex=-1;
+const reportContext=window.REVIEW_REPORT||null;
+const handledStatuses=new Set(['reported','ignored','false_positive','dismissed']);
+const isHandled=decision=>handledStatuses.has(decision?.status);
 let issues=[],duration=0,activeKey='',selectedIssue=null,clipPoint=0,padding=2,clipStart=0,clipEnd=0;
 let priorTime=null,shownTypes=new Set(types.map((_,i)=>i)),returnFocus=null,wasPlaying=false,saving=false;
 let logFile=null,attachments=[],toastTimeout,previewing=false;
 const video=$('video'),clipVideo=$('clipVideo');
 function persist(){
-  try{if(recordingKey)reviews[recordingKey]={decisions,watched:[...watched]};localStorage.setItem('qa-pages-demo-v1',JSON.stringify({tickets,reviews}));}
+  try{
+    const latest=JSON.parse(localStorage.getItem('qa-pages-demo-v1')||'{}');
+    reviews={...reviews,...latest.reviews};
+    if(recordingKey)reviews[recordingKey]={decisions,watched:[...watched]};
+    tickets=[...new Map([...(latest.tickets||[]),...tickets].map(ticket=>[ticket.id,ticket])).values()];
+    localStorage.setItem('qa-pages-demo-v1',JSON.stringify({tickets,reviews}));persistReportProgress();
+  }
   catch{toast('浏览器存储空间不足，当前更改仅在本次页面中保留。');}
 }
 function toast(message){clearTimeout(toastTimeout);$('toast').textContent=message;$('toast').hidden=false;toastTimeout=setTimeout(()=>$('toast').hidden=true,4200);}
 function updateCounts(){
   $('ticketCount').textContent=tickets.length;$('railCount').textContent=tickets.length;$('railCount').hidden=!tickets.length;
-  $('handledSummary').textContent=`${Object.keys(decisions).length} / ${issues.length} 个问题已处理`;
+  const handled=issues.filter(x=>isHandled(decisions[x.id])).length;
+  $('handledSummary').textContent=`${handled} / ${issues.length} 个问题已处理`;
+  updateProgress();
 }
 function activeIssues(){return issues.filter(x=>shownTypes.has(x.type)&&video.currentTime>=x.start&&video.currentTime<x.end);}
 function makeIssues(){
@@ -75,7 +86,11 @@ function makeIssues(){
   $('localVideoPrompt').hidden=true;$('centerPlay').hidden=false;
   $('createBug').disabled=false;$('scrubber').disabled=false;$('playButton').disabled=false;
   $('emptyState').querySelector('h3').textContent='当前画面暂无疑似问题';
-  issues=seeds.map((x,i)=>({id:`finding-${i+1}`,type:x[0],start:duration*x[1],end:duration*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
+  const entry=recordingQueue[queueIndex];
+  const matching=reportContext?seeds.filter(x=>reportContext.checks.includes(types[x[0]].name)):seeds;
+  const pool=matching.length?matching:seeds;
+  const detectionSeeds=reportContext?Array.from({length:entry.findingCount},(_,i)=>{const x=[...pool[i%pool.length]];const start=.025+i/Math.max(1,entry.findingCount)*.94;x[1]=start;x[2]=Math.min(.995,start+Math.min(.04,.7/Math.max(1,entry.findingCount)));return x;}):seeds;
+  issues=detectionSeeds.map((x,i)=>({id:`finding-${i+1}`,type:x[0],start:duration*x[1],end:duration*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
   $('metaDuration').textContent=fmt(duration);$('totalTime').textContent=fmt(duration);
   $('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;
   $('scrubber').max=duration;
@@ -86,7 +101,7 @@ function renderTracks(){
   $('trackRows').innerHTML=types.map((t,i)=>{
     if(!shownTypes.has(i))return '';
     const group=issues.filter(x=>x.type===i);
-    return `<div class="track-row"><div class="track-label" title="${t.name}"><span class="track-dot" style="background:${t.color}"></span><span class="track-name">${t.name}</span><span class="track-count">${group.length}</span></div><div class="track-lane" data-lane="${i}" aria-label="${t.name}时间轴">${group.map(x=>`<button class="track-segment ${decisions[x.id]?'handled':''}" data-issue="${x.id}" style="left:${x.start/duration*100}%;width:${(x.end-x.start)/duration*100}%;--issue-color:${t.color}" title="${t.name} ${fmt(x.start,true)}–${fmt(x.end,true)} · ${x.title}" aria-label="${t.name} ${fmt(x.start)} 跳转"></button>`).join('')}</div></div>`;
+    return `<div class="track-row"><div class="track-label" title="${t.name}"><span class="track-dot" style="background:${t.color}"></span><span class="track-name">${t.name}</span><span class="track-count">${group.length}</span></div><div class="track-lane" data-lane="${i}" aria-label="${t.name}时间轴">${group.map(x=>`<button class="track-segment ${isHandled(decisions[x.id])?'handled':''}" data-issue="${x.id}" style="left:${x.start/duration*100}%;width:${(x.end-x.start)/duration*100}%;--issue-color:${t.color}" title="${t.name} ${fmt(x.start,true)}–${fmt(x.end,true)} · ${x.title}" aria-label="${t.name} ${fmt(x.start)} 跳转"></button>`).join('')}</div></div>`;
   }).join('');
   $('typeFilters').innerHTML=types.map((t,i)=>`<label><input type="checkbox" data-type="${i}" ${shownTypes.has(i)?'checked':''}>${t.name}</label>`).join('');
   $('filterCount').textContent=shownTypes.size;
@@ -116,13 +131,13 @@ function renderCurrent(force=false){
   if(!force&&key===activeKey)return;activeKey=key;
   $('emptyState').hidden=current.length>0;
   $('currentSummary').textContent=current.length?`${current.length} 处疑似问题 · 与当前播放时间同步`:'随视频播放，同步展示疑似问题';
-  const next=issues.find(x=>x.start>video.currentTime&&shownTypes.has(x.type)&&!decisions[x.id]);
+  const next=issues.find(x=>x.start>video.currentTime&&shownTypes.has(x.type)&&!isHandled(decisions[x.id]));
   $('jumpFirst').disabled=!next;$('jumpFirst').textContent=next?'跳转到下一处问题 →':'已无后续未处理问题';
   $('currentIssues').innerHTML=current.map(x=>{
     const t=types[x.type],d=decisions[x.id];
-    return `<article class="issue-card" style="--issue-color:${t.color}"><div class="issue-card-head"><span class="type-tag">${icon(t.global?'alert':'scan')}${t.name}</span><span class="confidence">置信度 ${x.confidence}%</span></div><h3>${x.title}</h3><p class="issue-description">${x.description}</p><div class="issue-metrics"><span>${fmt(x.start,true)} — ${fmt(x.end,true)}</span><span>${(x.end-x.start).toFixed(1)} 秒</span></div><div class="issue-context">${icon(t.global?'expand':'scan')}${t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步'}</div>${d?`<div class="handled-state"><span>${icon('check')} ${d.status==='reported'?'已生成 '+escapeHtml(d.ticketId):'已排除 · 非 Bug'}</span>${d.status==='dismissed'?`<button data-undo="${x.id}">撤销</button>`:''}</div>`:`<div class="issue-actions"><button class="button subtle" data-dismiss="${x.id}">非 Bug</button><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button></div>`}</article>`;
+    return `<article class="issue-card" style="--issue-color:${t.color}"><div class="issue-card-head"><span class="type-tag">${icon(t.global?'alert':'scan')}${t.name}</span><span class="confidence">置信度 ${x.confidence}%</span></div><h3>${x.title}</h3><p class="issue-description">${x.description}</p><div class="issue-metrics"><span>${fmt(x.start,true)} — ${fmt(x.end,true)}</span><span>${(x.end-x.start).toFixed(1)} 秒</span></div><div class="issue-context">${icon(t.global?'expand':'scan')}${t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步'}</div>${isHandled(d)?`<div class="handled-state"><span>${icon('check')} ${d.status==='reported'?'已确认 Bug · '+escapeHtml(d.ticketId):d.status==='ignored'?'已忽略':'已标记误报'}</span>${d.status!=='reported'?`<button data-undo="${x.id}">撤销</button>`:''}</div>`:`<div class="issue-actions"><button class="button subtle" data-ignore="${x.id}">忽略</button><button class="button subtle" data-dismiss="${x.id}">误报</button><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button></div>`}</article>`;
   }).join('')+(current.length&&next?`<div class="nearby-heading">接下来</div><button class="next-card" data-jump="${next.id}"><span>${types[next.type].name}<small>${fmt(next.start)} · 点击跳转</small></span>${icon('arrow')}</button>`:'');
-  const visible=$('showMarks').checked?current.filter(x=>decisions[x.id]?.status!=='dismissed'):[];
+  const visible=$('showMarks').checked?current.filter(x=>!['dismissed','ignored','false_positive'].includes(decisions[x.id]?.status)):[];
   $('annotations').innerHTML=visible.filter(x=>x.box).map(x=>`<button class="annotation-box" data-box="${x.id}" style="left:${x.box[0]*100}%;top:${x.box[1]*100}%;width:${x.box[2]*100}%;height:${x.box[3]*100}%;--issue-color:${types[x.type].color}" aria-label="${types[x.type].name}，查看问题"><span>${types[x.type].name} · 疑似</span></button>`).join('');
   const globals=visible.filter(x=>types[x.type].global);
   $('globalAlert').hidden=!globals.length;
@@ -149,16 +164,34 @@ function syncPlayback(){
   if(video.paused){priorTime=null;persist();}
 }
 function updateProgress(){
-  const seconds=Math.min(duration,watched.size*.25),pct=duration?Math.round(seconds/duration*100):0;
-  $('reviewPercent').innerHTML=`${pct}<span>%</span>`;$('reviewProgress').style.width=`${pct}%`;
-  $('reviewCoverage').textContent=`已观看 ${fmt(seconds)} / ${fmt(duration)} · 重复不累计`;
+  const handled=issues.filter(x=>isHandled(decisions[x.id])).length,total=issues.length;
+  const pct=total?handled/total*100:0;
+  $('reviewPercent').innerHTML=`${handled}<span> / ${total}</span>`;
+  $('reviewProgress').style.width=`${pct}%`;
+  const counts=status=>issues.filter(x=>decisions[x.id]?.status===status).length;
+  $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 忽略 ${counts('ignored')} · 误报 ${counts('false_positive')+counts('dismissed')}`;
+  $('reviewProgressNote').textContent=duration?(total?(handled===total?'当前视频的问题已全部处理':`当前视频还有 ${total-handled} 个问题待处理`):'当前视频没有检测到疑似问题'):'确认 Bug、忽略、误报均计为已处理';
+}
+function persistReportProgress(){
+  if(!reportContext||!recordingQueue.length)return;
+  const storageKey='qa-report-progress:'+reportContext.id;
+  let progress={};try{progress=JSON.parse(localStorage.getItem(storageKey)||'{}');}catch{}
+  progress.videos=progress.videos||{};
+  if(recordingKey&&issues.length===recordingQueue[queueIndex]?.findingCount){
+    progress.videos[recordingQueue[queueIndex].id]={handled:issues.filter(x=>isHandled(decisions[x.id])).length,total:issues.length};
+  }
+  progress.handled=recordingQueue.reduce((sum,e)=>sum+(progress.videos[e.id]?.handled||0),0);
+  progress.total=recordingQueue.reduce((sum,e)=>sum+e.findingCount,0);
+  progress.complete=recordingQueue.every(e=>progress.videos[e.id]?.handled===e.findingCount);
+  progress.updatedAt=new Date().toISOString();
+  localStorage.setItem(storageKey,JSON.stringify(progress));
+  $('reportProgress').textContent=`整份报告 ${progress.handled} / ${progress.total} 已处理`;
 }
 video.addEventListener('loadedmetadata',makeIssues);
 video.addEventListener('timeupdate',()=>{
   const t=video.currentTime;
   if(!video.paused&&!video.seeking&&priorTime!==null&&t>=priorTime&&t-priorTime<1.3){
     for(let n=Math.floor(priorTime*4);n<Math.floor(t*4);n++)watched.add(n);
-    updateProgress();
   }
   priorTime=video.paused?null:t;
   $('currentTime').textContent=fmt(t);$('scrubber').value=t;
@@ -232,9 +265,9 @@ $('typeFilters').onchange=e=>{const i=Number(e.target.dataset.type);e.target.che
 $('selectAllTypes').onclick=()=>{shownTypes=shownTypes.size?new Set():new Set(types.map((_,i)=>i));renderTracks();renderCurrent(true);};
 document.addEventListener('click',e=>{if(!e.target.closest('#filterPopover')&&!e.target.closest('#filterButton'))$('filterPopover').hidden=true;});
 $('currentIssues').onclick=e=>{
-  const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),undo=e.target.closest('[data-undo]'),jump=e.target.closest('[data-jump]');
+  const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),ignore=e.target.closest('[data-ignore]'),undo=e.target.closest('[data-undo]'),jump=e.target.closest('[data-jump]');
   if(report)openBug(issues.find(x=>x.id===report.dataset.report));
-  if(dismiss){decisions[dismiss.dataset.dismiss]={status:'dismissed'};persist();renderCurrent(true);renderTracks();updateCounts();toast('已标记为非 Bug，可在当前问题卡片中撤销。');}
+  if(dismiss||ignore){const id=dismiss?dismiss.dataset.dismiss:ignore.dataset.ignore;if(!issues.some(x=>x.id===id))return;decisions[id]={status:dismiss?'false_positive':'ignored'};persist();renderCurrent(true);renderTracks();updateCounts();toast(dismiss?'已标记误报，计入已处理；可撤销。':'已忽略，计入已处理；可撤销。');}
   if(undo){delete decisions[undo.dataset.undo];persist();renderCurrent(true);renderTracks();updateCounts();}
   if(jump)seek(issues.find(x=>x.id===jump.dataset.jump).start+.04);
 };
@@ -297,8 +330,8 @@ $('bugForm').onsubmit=async e=>{
   const title=$('bugTitle').value.trim(),qa=$('qaName').value.trim();
   if(!title||!qa){toast('请填写问题标题和审核人。');button.disabled=false;return;}
   saving=true;
-  const id=`DEMO-${String(tickets.length+1).padStart(3,'0')}`;
-  const ticket={id,title,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
+  const id=`DEMO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+  const ticket={id,title,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
   try{
     const shot=await screenshot();
     const fallbackLog=new Blob([`DEMO LOG — 示例数据，非真实测试日志\nRecording: ${recordingName}\nEvent point: ${clipPoint.toFixed(3)}s\nClip: ${clipStart.toFixed(3)}s – ${clipEnd.toFixed(3)}s\nType: ${ticket.type}\n`],{type:'text/plain'});
@@ -376,7 +409,9 @@ function syncQueue(){
   const next=recordingQueue[queueIndex+1];
   $('queueHint').textContent=next?`下一段：${next.name}`:'已到队列末尾，可继续添加录屏';
   $('nextVideo').title=next?`保存当前记录，切换至 ${next.name}`:'选择更多本地录屏，继续审核';
-  $('chooseVideo').textContent=recordingQueue.length?'添加录屏':'选择本地录屏';
+  $('chooseVideo').textContent=reportContext?'替换当前录屏':recordingQueue.length?'添加录屏':'选择本地录屏';
+  $('nextVideo').disabled=!!reportContext&&!next;
+  if(reportContext&&!next)$('queueHint').textContent='已是本报告最后一个视频，可从队列返回其他视频';
 }
 async function loadRecording(index){
   const entry=recordingQueue[index];if(!entry)return;
@@ -397,12 +432,14 @@ async function loadRecording(index){
   video.playbackRate=Number($('speedSelect').value)||1;
   if(oldUrl?.startsWith('blob:'))URL.revokeObjectURL(oldUrl);
   renderTracks();renderCurrent(true);updateCounts();updateProgress();syncPlayback();syncQueue();
+  if(reportContext)$('reportSourceNote').textContent=entry.file?`当前视频源：${entry.file.name} · 检测结果为演示数据`:'演示使用 sample.mp4，非该报告的原始录屏；可替换当前录屏。';
   const key=recordingKey;
   try{const log=await getEvidence('log:'+key);if(key===recordingKey)logFile=log||null;}catch{}
 }
 function addRecordings(files){
   const valid=[...files].filter(file=>file.type.startsWith('video/')||/\.(mp4|mov|webm|m4v)$/i.test(file.name));
   if(!valid.length){if(files.length)toast('请选择视频文件。');return;}
+  if(reportContext){recordingQueue[queueIndex].file=valid[0];loadRecording(queueIndex);toast('已替换当前视频源，文件仅在本机读取。');return;}
   let first=-1;
   for(const file of valid){
     const key=JSON.stringify([file.name,file.size,file.lastModified]);

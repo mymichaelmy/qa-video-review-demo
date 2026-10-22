@@ -84,7 +84,7 @@ function makeIssues(){
   duration=Number.isFinite(video.duration)?video.duration:0;
   if(!duration){toast('无法读取视频时长，请更换一个文件。');return;}
   $('localVideoPrompt').hidden=true;$('centerPlay').hidden=false;
-  $('createBug').disabled=false;$('sidebarCreateBug').disabled=false;$('scrubber').disabled=false;$('playButton').disabled=false;
+  $('sidebarCreateBug').disabled=false;$('scrubber').disabled=false;$('playButton').disabled=false;
   $('emptyState').querySelector('h3').textContent='当前画面暂无疑似问题';
   const entry=recordingQueue[queueIndex];
   const matching=reportContext?seeds.filter(x=>reportContext.checks.includes(types[x[0]].name)):seeds;
@@ -309,7 +309,7 @@ function closeBug(resume=true){
   clipVideo.src=recordingUrl;editingTicket=null;editingEvidence=null;
   returnFocus?.focus();
 }
-$('createBug').onclick=$('sidebarCreateBug').onclick=()=>openBug();$('closeBug').onclick=()=>closeBug();$('cancelBug').onclick=()=>closeBug();
+$('sidebarCreateBug').onclick=()=>openBug();$('closeBug').onclick=()=>closeBug();$('cancelBug').onclick=()=>closeBug();
 $('clipPadding').onclick=e=>{const b=e.target.closest('[data-padding]');if(b){padding=Number(b.dataset.padding);updateClip();}};
 $('previewClip').onclick=async()=>{
   if(previewing){clipVideo.pause();previewing=false;$('previewClip').innerHTML=icon('play')+'预览片段';return;}
@@ -369,7 +369,7 @@ function openModal(title,content){
 function closeModal(){$('modalOverlay').hidden=true;document.body.style.overflow='';returnFocus?.focus();}
 $('closeModal').onclick=closeModal;
 $('modalOverlay').onclick=e=>{if(e.target===$('modalOverlay'))closeModal();};
-function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>保存 Bug</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。保存后会在右侧显示已记录的 Bug。</p>`);}
+function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置新建 Bug</span><kbd>B</kbd><span>保存 Bug</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。保存后会在右侧显示已记录的 Bug。</p>`);}
 $('helpButton').onclick=showHelp;$('helpFooter').onclick=showHelp;
 function showResources(){
   openModal('关联文件',`<div class="resource-card">${icon('video')}<div><strong>${escapeHtml(recordingName||'尚未选择录屏')}</strong><p>当前录屏 · ${fmt(duration)} · 所有问题单自动关联</p></div><button class="button" id="changeLocalVideo">更换录屏</button></div><div class="resource-card">${icon('file')}<div><strong id="resourceLogName">${escapeHtml(logFile?.name||'demo.log')}</strong><p id="resourceLogNote">${logFile?'已关联用户日志':'演示日志占位，非原始测试日志'}</p></div><label class="button" for="logUpload">关联真实日志</label><input id="logUpload" type="file" accept=".log,.txt,.zip,.json" hidden></div><p class="modal-caption">新增问题单会关联当前日志，并保存一份本地证据副本。关联日志不会更改已经生成的问题单。</p>`);
@@ -436,7 +436,7 @@ async function loadRecording(index){
   recordingFile=entry.file||null;recordingName=entry.name;recordingKey=entry.key;
   const review=reviews[recordingKey]||{};decisions=review.decisions||{};watched=new Set(review.watched||[]);
   logFile=null;issues=[];duration=0;priorTime=null;activeKey='';selectedIssue=null;
-  $('createBug').disabled=true;$('sidebarCreateBug').disabled=true;$('scrubber').disabled=true;$('playButton').disabled=true;
+  $('sidebarCreateBug').disabled=true;$('scrubber').disabled=true;$('playButton').disabled=true;
   $('centerPlay').hidden=true;$('localVideoPrompt').hidden=true;$('videoError').hidden=true;
   $('metaDuration').textContent='正在读取';$('resolution').textContent='正在读取';$('currentTime').textContent='00:00';$('totalTime').textContent='00:00';
   $('scrubber').value=0;$('scrubber').style.background='#393b45';

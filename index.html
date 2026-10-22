@@ -38,7 +38,7 @@
               <div id="videoError" class="video-error" hidden>视频无法读取，请重新选择浏览器支持的录屏格式。<button class="button" id="retryVideo">重新加载</button></div>
             </div>
             <div class="player-controls"><input id="scrubber" disabled class="scrubber" type="range" min="0" max="100" step="0.01" value="0" aria-label="视频进度">
-              <div class="controls-line"><div class="playback-controls"><button class="icon-button play-button" id="playButton" disabled title="播放 / 暂停（空格）" aria-label="播放"><i data-icon="play"></i></button><button class="icon-button" id="backButton" title="后退 5 秒（[）" aria-label="后退五秒"><i data-icon="back"></i></button><button class="icon-button" id="forwardButton" title="前进 5 秒（]）" aria-label="前进五秒"><i data-icon="forward"></i></button><span class="time-display"><strong id="currentTime">00:00</strong><span>/</span><span id="totalTime">00:00</span></span></div><div class="playback-options"><select id="speedSelect" aria-label="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1.0×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select><button class="icon-button" id="muteButton" aria-label="静音" title="静音"><i data-icon="volume"></i></button><span class="control-separator"></span><button class="button primary compact" id="createBug" title="人工新建 Bug（B），不关联检测结果" disabled><i data-icon="plus"></i>快捷提单 <kbd>B</kbd></button></div></div>
+              <div class="controls-line"><div class="playback-controls"><button class="icon-button play-button" id="playButton" disabled title="播放 / 暂停（空格）" aria-label="播放"><i data-icon="play"></i></button><button class="icon-button" id="backButton" title="后退 5 秒（[）" aria-label="后退五秒"><i data-icon="back"></i></button><button class="icon-button" id="forwardButton" title="前进 5 秒（]）" aria-label="前进五秒"><i data-icon="forward"></i></button><span class="time-display"><strong id="currentTime">00:00</strong><span>/</span><span id="totalTime">00:00</span></span></div><div class="playback-options"><select id="speedSelect" aria-label="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1.0×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select><button class="icon-button" id="muteButton" aria-label="静音" title="静音"><i data-icon="volume"></i></button></div></div>
             </div>
           </div>
           <section class="timeline-panel">
@@ -54,7 +54,7 @@
           <div class="review-actions"><button class="button subtle" id="jumpFirst" disabled>下一个问题</button><button class="button primary" id="sidebarCreateBug" title="人工新建 Bug（B），不关联检测结果" disabled><i data-icon="plus"></i>新建 Bug <kbd>B</kbd></button></div>
         </aside>
       </div>
-      <footer class="page-footer"><div><span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>←</kbd><kbd>→</kbd> 切换问题</span><span><kbd>[</kbd><kbd>]</kbd> 跳转 5 秒</span><span><kbd>H</kbd> 隐藏标注</span><span><kbd>B</kbd> 快捷提单</span><button class="text-button" id="helpFooter">全部快捷键 <i data-icon="arrow"></i></button></div></footer>
+      <footer class="page-footer"><div><span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>←</kbd><kbd>→</kbd> 切换问题</span><span><kbd>[</kbd><kbd>]</kbd> 跳转 5 秒</span><span><kbd>H</kbd> 隐藏标注</span><span><kbd>B</kbd> 新建 Bug</span><button class="text-button" id="helpFooter">全部快捷键 <i data-icon="arrow"></i></button></div></footer>
     </main>
   </div>
   <div class="overlay" id="bugOverlay" hidden>

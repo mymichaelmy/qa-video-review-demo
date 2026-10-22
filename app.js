@@ -482,7 +482,8 @@ function bugCard(t){
   return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}" tabindex="0" role="group" aria-label="${escapeHtml(t.title)}，按回车定位问题" title="点击定位问题时间"><div class="bug-card-top"><span class="bug-status">${t.findingId?'已确认 Bug':'已记录'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p><div class="bug-card-actions"><button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button><button data-ticket-action="undo" data-id="${escapeHtml(t.id)}">撤销</button></div></article>`;
 }
 function renderFrameBugs(){
-  const list=scopedTickets().filter(t=>t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end&&!activeIssues().some(x=>decisions[x.id]?.ticketId===t.id));
+  // Detected Bugs belong to their detection interval in renderCurrent, never the padded evidence clip.
+  const list=scopedTickets().filter(t=>!t.findingId&&t.source!=='detected'&&t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end);
   $('frameBugs').innerHTML=list.map(bugCard).join('');
   $('emptyState').hidden=activeIssues().length>0||list.length>0;
 }

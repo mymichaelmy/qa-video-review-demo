@@ -46,3 +46,5 @@
 .page-footer{justify-content:flex-end}.details-panel{min-height:0}.bug-status{color:var(--green);background:#27ae601a}
 
 .handled-state{gap:12px}.handled-state>span{margin-right:auto}
+
+[data-ticket-id]{cursor:pointer}[data-ticket-id]:hover{border-color:#7a8b9e}[data-ticket-id]:focus-visible{outline:2px solid var(--amber);outline-offset:2px}

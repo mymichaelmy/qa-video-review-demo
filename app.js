@@ -55,6 +55,7 @@ let tickets=Array.isArray(saved.tickets)?saved.tickets:[];
 let reviews=saved.reviews||{},decisions={},watched=new Set();
 let recordingName='',recordingKey='',recordingUrl='',recordingFile=null;
 let recordingQueue=[],queueIndex=-1;
+let sidebarView='current',latestTicketId=null;
 const reportContext=window.REVIEW_REPORT||null;
 const handledStatuses=new Set(['reported','ignored','false_positive','dismissed']);
 const isHandled=decision=>handledStatuses.has(decision?.status);
@@ -74,7 +75,7 @@ function persist(){
 }
 function toast(message){clearTimeout(toastTimeout);$('toast').textContent=message;$('toast').hidden=false;toastTimeout=setTimeout(()=>$('toast').hidden=true,4200);}
 function updateCounts(){
-  $('ticketCount').textContent=tickets.length;$('railCount').textContent=tickets.length;$('railCount').hidden=!tickets.length;
+  renderBugSidebar();
   const handled=issues.filter(x=>isHandled(decisions[x.id])).length;
   $('handledSummary').textContent=`${handled} / ${issues.length} 个问题已处理`;
   updateProgress();
@@ -128,19 +129,22 @@ function renderCurrent(force=false){
   const current=activeIssues();
   const key=current.map(x=>x.id+':'+(decisions[x.id]?.status||'')).join('|')+'|'+$('showMarks').checked+'|'+shownTypes.size;
   $('detailTime').textContent=fmt(video.currentTime,true);
-  if(!force&&key===activeKey)return;activeKey=key;
+  if(!force&&key===activeKey){renderFrameBugs();return;}activeKey=key;
   $('emptyState').hidden=current.length>0;
   $('currentSummary').textContent=current.length?`${current.length} 处疑似问题 · 与当前播放时间同步`:'随视频播放，同步展示疑似问题';
   const next=issues.find(x=>x.start>video.currentTime&&shownTypes.has(x.type)&&!isHandled(decisions[x.id]));
   $('jumpFirst').disabled=!next;$('jumpFirst').textContent=next?'跳转到下一处问题 →':'已无后续未处理问题';
   $('currentIssues').innerHTML=current.map(x=>{
     const t=types[x.type],d=decisions[x.id];
-    return `<article class="issue-card" style="--issue-color:${t.color}"><div class="issue-card-head"><span class="type-tag">${icon(t.global?'alert':'scan')}${t.name}</span><span class="confidence">置信度 ${x.confidence}%</span></div><h3>${x.title}</h3><p class="issue-description">${x.description}</p><div class="issue-metrics"><span>${fmt(x.start,true)} — ${fmt(x.end,true)}</span><span>${(x.end-x.start).toFixed(1)} 秒</span></div><div class="issue-context">${icon(t.global?'expand':'scan')}${t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步'}</div>${isHandled(d)?`<div class="handled-state"><span>${icon('check')} ${d.status==='reported'?'已确认 Bug · '+escapeHtml(d.ticketId):d.status==='ignored'?'已忽略':'已标记误报'}</span>${d.status!=='reported'?`<button data-undo="${x.id}">撤销</button>`:''}</div>`:`<div class="issue-actions"><button class="button subtle" data-ignore="${x.id}">忽略</button><button class="button subtle" data-dismiss="${x.id}">误报</button><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button></div>`}</article>`;
+    const ticket=tickets.find(ticket=>ticket.id===d?.ticketId);
+    if(ticket)return bugCard(ticket);
+    return `<article class="issue-card" style="--issue-color:${t.color}"><div class="issue-card-head"><span class="type-tag">${icon(t.global?'alert':'scan')}${t.name}</span></div><h3>${x.title}</h3><p class="issue-description">${x.description}</p><div class="issue-metrics"><span>${fmt(x.start,true)} — ${fmt(x.end,true)}</span><span>${(x.end-x.start).toFixed(1)} 秒</span></div><div class="issue-context">${icon(t.global?'expand':'scan')}${t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步'}</div>${isHandled(d)?`<div class="handled-state"><span>${icon('check')} ${d.status==='reported'?'已确认 Bug · '+escapeHtml(d.ticketId):d.status==='ignored'?'已跳过':'已标记误报'}</span>${d.status!=='reported'?`<button data-undo="${x.id}">撤销</button>`:''}</div>`:`<div class="issue-actions"><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button><button class="button subtle" data-dismiss="${x.id}">误报</button><button class="button subtle" data-ignore="${x.id}">跳过</button></div>`}</article>`;
   }).join('')+(current.length&&next?`<div class="nearby-heading">接下来</div><button class="next-card" data-jump="${next.id}"><span>${types[next.type].name}<small>${fmt(next.start)} · 点击跳转</small></span>${icon('arrow')}</button>`:'');
   const visible=$('showMarks').checked?current.filter(x=>!['dismissed','ignored','false_positive'].includes(decisions[x.id]?.status)):[];
   $('annotations').innerHTML=visible.filter(x=>x.box).map(x=>`<button class="annotation-box" data-box="${x.id}" style="left:${x.box[0]*100}%;top:${x.box[1]*100}%;width:${x.box[2]*100}%;height:${x.box[3]*100}%;--issue-color:${types[x.type].color}" aria-label="${types[x.type].name}，查看问题"><span>${types[x.type].name} · 疑似</span></button>`).join('');
   const globals=visible.filter(x=>types[x.type].global);
   $('globalAlert').hidden=!globals.length;
+  renderFrameBugs();
   $('globalAlert').innerHTML=globals.map(x=>`${icon('alert')}${types[x.type].name} · 全画面疑似问题`).join('　')+(globals.length?'<button class="hide-marks" data-hide-marks title="隐藏所有画面标注，可按 H 恢复" aria-label="隐藏画面标注">×</button>':'');
 }
 function seek(time){
@@ -169,8 +173,8 @@ function updateProgress(){
   $('reviewPercent').innerHTML=`${handled}<span> / ${total}</span>`;
   $('reviewProgress').style.width=`${pct}%`;
   const counts=status=>issues.filter(x=>decisions[x.id]?.status===status).length;
-  $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 忽略 ${counts('ignored')} · 误报 ${counts('false_positive')+counts('dismissed')}`;
-  $('reviewProgressNote').textContent=duration?(total?(handled===total?'当前视频的问题已全部处理':`当前视频还有 ${total-handled} 个问题待处理`):'当前视频没有检测到疑似问题'):'确认 Bug、忽略、误报均计为已处理';
+  $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 跳过 ${counts('ignored')} · 误报 ${counts('false_positive')+counts('dismissed')}`;
+  $('reviewProgressNote').textContent=duration?(total?(handled===total?'当前视频的问题已全部处理':`当前视频还有 ${total-handled} 个问题待处理`):'当前视频没有检测到疑似问题'):'确认 Bug、跳过、误报均计为已处理';
 }
 function persistReportProgress(){
   if(!reportContext||!recordingQueue.length)return;
@@ -265,9 +269,10 @@ $('typeFilters').onchange=e=>{const i=Number(e.target.dataset.type);e.target.che
 $('selectAllTypes').onclick=()=>{shownTypes=shownTypes.size?new Set():new Set(types.map((_,i)=>i));renderTracks();renderCurrent(true);};
 document.addEventListener('click',e=>{if(!e.target.closest('#filterPopover')&&!e.target.closest('#filterButton'))$('filterPopover').hidden=true;});
 $('currentIssues').onclick=e=>{
+  if(e.target.closest('[data-ticket-action]')){handleTicketAction(e);return;}
   const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),ignore=e.target.closest('[data-ignore]'),undo=e.target.closest('[data-undo]'),jump=e.target.closest('[data-jump]');
   if(report)openBug(issues.find(x=>x.id===report.dataset.report));
-  if(dismiss||ignore){const id=dismiss?dismiss.dataset.dismiss:ignore.dataset.ignore;if(!issues.some(x=>x.id===id))return;decisions[id]={status:dismiss?'false_positive':'ignored'};persist();renderCurrent(true);renderTracks();updateCounts();toast(dismiss?'已标记误报，计入已处理；可撤销。':'已忽略，计入已处理；可撤销。');}
+  if(dismiss||ignore){const id=dismiss?dismiss.dataset.dismiss:ignore.dataset.ignore;if(!issues.some(x=>x.id===id))return;decisions[id]={status:dismiss?'false_positive':'ignored'};persist();renderCurrent(true);renderTracks();updateCounts();toast(dismiss?'已标记误报，计入已处理；可撤销。':'已跳过，计入已处理；可撤销。');}
   if(undo){delete decisions[undo.dataset.undo];persist();renderCurrent(true);renderTracks();updateCounts();}
   if(jump)seek(issues.find(x=>x.id===jump.dataset.jump).start+.04);
 };
@@ -331,14 +336,15 @@ $('bugForm').onsubmit=async e=>{
   if(!title||!qa){toast('请填写问题标题和审核人。');button.disabled=false;return;}
   saving=true;
   const id=`DEMO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-  const ticket={id,title,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
+  const ticket={id,title,submissionStatus:'draft',reviewedAt:null,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
   try{
     const shot=await screenshot();
     const fallbackLog=new Blob([`DEMO LOG — 示例数据，非真实测试日志\nRecording: ${recordingName}\nEvent point: ${clipPoint.toFixed(3)}s\nClip: ${clipStart.toFixed(3)}s – ${clipEnd.toFixed(3)}s\nType: ${ticket.type}\n`],{type:'text/plain'});
     await putEvidence(id,{screenshot:shot,log:logFile||fallbackLog,attachments});
-    tickets.push(ticket);if(selectedIssue)decisions[selectedIssue.id]={status:'reported',ticketId:id};
-    persist();updateCounts();renderTracks();renderCurrent(true);closeBug();
-    toast(`${id} 已生成，截图、日志和附件已保存。${wasPlaying?' 已继续播放。':''}`);
+    tickets.push(ticket);latestTicketId=id;if(selectedIssue)decisions[selectedIssue.id]={status:'reported',ticketId:id};
+    persist();updateCounts();renderTracks();renderCurrent(true);closeBug(false);
+    setSidebarView('all');$('reviewListScroll').scrollTop=0;
+    toast('已加入右侧待提交列表，复核后统一提交。');
   }catch(err){toast('证据保存失败，请检查浏览器可用存储空间后重试。');}
   finally{button.disabled=false;saving=false;}
 };
@@ -350,7 +356,7 @@ function openModal(title,content){
 function closeModal(){$('modalOverlay').hidden=true;document.body.style.overflow='';returnFocus?.focus();}
 $('closeModal').onclick=closeModal;
 $('modalOverlay').onclick=e=>{if(e.target===$('modalOverlay'))closeModal();};
-function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>提交问题单</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。完成提单后，若原本正在播放，将自动继续回看。</p>`);}
+function showHelp(){openModal('快捷键，让回看更顺手',`<div class="shortcut-list"><span>播放 / 暂停</span><kbd>Space</kbd><span>上一个 / 下一个疑似问题</span><div><kbd>←</kbd> <kbd>→</kbd></div><span>后退 / 前进 5 秒</span><div><kbd>[</kbd> <kbd>]</kbd></div><span>显示 / 隐藏画面标注</span><kbd>H</kbd><span>当前位置快捷提单</span><kbd>B</kbd><span>保存 Bug 草稿</span><kbd>⌘ / Ctrl + Enter</kbd><span>关闭弹窗或提单面板</span><kbd>Esc</kbd></div><p class="modal-caption">填写表单时，播放快捷键会自动停用。保存后会在右侧显示 Bug 草稿，复核后统一提交。</p>`);}
 $('helpButton').onclick=showHelp;$('helpFooter').onclick=showHelp;
 function showResources(){
   openModal('关联文件',`<div class="resource-card">${icon('video')}<div><strong>${escapeHtml(recordingName||'尚未选择录屏')}</strong><p>当前录屏 · ${fmt(duration)} · 所有问题单自动关联</p></div><button class="button" id="changeLocalVideo">更换录屏</button></div><div class="resource-card">${icon('file')}<div><strong id="resourceLogName">${escapeHtml(logFile?.name||'demo.log')}</strong><p id="resourceLogNote">${logFile?'已关联用户日志':'演示日志占位，非原始测试日志'}</p></div><label class="button" for="logUpload">关联真实日志</label><input id="logUpload" type="file" accept=".log,.txt,.zip,.json" hidden></div><p class="modal-caption">新增问题单会关联当前日志，并保存一份本地证据副本。关联日志不会更改已经生成的问题单。</p>`);
@@ -360,13 +366,9 @@ function showResources(){
 }
 $('resourcesButton').onclick=showResources;
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
-function showTickets(){
-  openModal(`Bug 单 · ${tickets.length}`,tickets.length?`<div class="ticket-list">${tickets.slice().reverse().map(t=>`<article class="ticket-item"><div class="ticket-item-header"><span>${escapeHtml(t.id)} · 本地已生成</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p>${escapeHtml(t.type)} · ${escapeHtml(t.qa)} · ${escapeHtml(t.acceptance)}<br>片段 ${fmt(t.clip.start,true)}–${fmt(t.clip.end,true)} · ${escapeHtml(t.recording)}<br>${escapeHtml(t.log)}${t.demoLog?'（演示日志）':''} · ${t.attachments.length} 个补充附件</p>${t.notes?`<p>${escapeHtml(t.notes).replace(/\n/g,'<br>')}</p>`:''}<div class="ticket-buttons"><button class="button subtle" data-replay="${t.id}">${icon('play')}回看片段</button><button class="button subtle" data-evidence="${t.id}">${icon('file')}证据</button><button class="button" data-export="${t.id}">${icon('download')}导出</button></div></article>`).join('')}</div><p class="modal-caption">问题单仅保存在当前浏览器。导出为 JSON，包含片段起止时间和关联证据信息；未向外部系统提单。</p>`:'<div class="empty-tickets">还没有生成问题单。<br>播放视频时按 <kbd>B</kbd>，记录你发现的第一处问题。</div>');
-}
-$('ticketsButton').onclick=showTickets;$('railTickets').onclick=showTickets;
 let replayEnd=null;
 video.addEventListener('timeupdate',()=>{if(replayEnd!==null&&video.currentTime>=replayEnd){video.pause();replayEnd=null;toast('问题片段回看结束。');}});
-$('modalContent').onclick=async e=>{
+async function handleEvidenceAction(e){
   const replay=e.target.closest('[data-replay]'),exp=e.target.closest('[data-export]'),ev=e.target.closest('[data-evidence]'),dl=e.target.closest('[data-download]');
   if(replay){const t=tickets.find(x=>x.id===replay.dataset.replay);if(t.recordingKey!==recordingKey||!duration){toast(`请先选择原录屏：${t.recording}`);return;}closeModal();seek(t.clip.start);replayEnd=t.clip.end;video.play().catch(()=>toast('请点击播放继续。'));}
   if(exp){const t=tickets.find(x=>x.id===exp.dataset.export);download(new Blob([JSON.stringify(t,null,2)],{type:'application/json'}),`${t.id}.json`);toast('问题单已导出为 JSON。');}
@@ -377,7 +379,8 @@ $('modalContent').onclick=async e=>{
     }catch{toast('读取本地证据失败。');}
   }
   if(dl){try{const t=tickets.find(x=>x.id===dl.dataset.download),d=await getEvidence(t.id),k=dl.dataset.kind;if(k==='screenshot')download(d.screenshot,`${t.id}.jpg`);else if(k==='log')download(d.log,t.log);else download(d.attachments[Number(k)],t.attachments[Number(k)].name);}catch{toast('读取证据失败，请检查浏览器存储。');}}
-};
+}
+$('modalContent').onclick=handleEvidenceAction;
 document.addEventListener('keydown',e=>{
   const bugOpen=!$('bugOverlay').hidden,modalOpen=!$('modalOverlay').hidden;
   if(e.key==='Escape'){if(bugOpen)closeBug();else if(modalOpen)closeModal();else $('filterPopover').hidden=true;return;}
@@ -411,6 +414,7 @@ function syncQueue(){
   $('nextVideo').title=next?`保存当前记录，切换至 ${next.name}`:'选择更多本地录屏，继续审核';
   $('chooseVideo').textContent=reportContext?'替换当前录屏':recordingQueue.length?'添加录屏':'选择本地录屏';
   $('nextVideo').disabled=!!reportContext&&!next;
+  $('nextVideo').textContent=reportContext&&!next?'已是最后一个视频':'下一个视频 →';
   if(reportContext&&!next)$('queueHint').textContent='已是本报告最后一个视频，可从队列返回其他视频';
 }
 async function loadRecording(index){
@@ -431,7 +435,7 @@ async function loadRecording(index){
   video.load();clipVideo.load();
   video.playbackRate=Number($('speedSelect').value)||1;
   if(oldUrl?.startsWith('blob:'))URL.revokeObjectURL(oldUrl);
-  renderTracks();renderCurrent(true);updateCounts();updateProgress();syncPlayback();syncQueue();
+  renderTracks();renderCurrent(true);updateCounts();updateProgress();syncPlayback();syncQueue();renderBugSidebar();
   if(reportContext)$('reportSourceNote').textContent=entry.file?`当前视频源：${entry.file.name} · 检测结果为演示数据`:'演示使用 sample.mp4，非该报告的原始录屏；可替换当前录屏。';
   const key=recordingKey;
   try{const log=await getEvidence('log:'+key);if(key===recordingKey)logFile=log||null;}catch{}
@@ -460,3 +464,73 @@ $('nextVideo').onclick=()=>{
   else $('localVideoInput').click();
 };
 syncQueue();
+
+function scopedTickets(){
+  return tickets.filter(t=>reportContext?t.reportId===reportContext.id:!t.reportId&&recordingQueue.some(entry=>entry.key===t.recordingKey));
+}
+function bugCard(t){
+  const submitted=t.submissionStatus==='submitted';
+  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status ${submitted?'submitted':t.reviewedAt?'reviewed':''}">${submitted?'已提交 · 演示':t.reviewedAt?'已复核 · 待提交':'待复核 · 草稿'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="replay" data-id="${escapeHtml(t.id)}">回看片段</button><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button>${!submitted?`<button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button>`:''}</div>${!submitted?`<button class="review-check ${t.reviewedAt?'checked':''}" data-ticket-action="review" data-id="${escapeHtml(t.id)}" aria-pressed="${!!t.reviewedAt}">${icon('check')}${t.reviewedAt?'已复核，点击取消':'标记已复核'}</button>`:''}</article>`;
+}
+function renderFrameBugs(){
+  const list=scopedTickets().filter(t=>t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end&&!activeIssues().some(x=>decisions[x.id]?.ticketId===t.id));
+  $('frameBugs').innerHTML=list.map(bugCard).join('');
+  $('emptyState').hidden=activeIssues().length>0||list.length>0;
+}
+function renderBugSidebar(){
+  const list=scopedTickets(),drafts=list.filter(t=>t.submissionStatus!=='submitted'),reviewed=drafts.filter(t=>t.reviewedAt);
+  $('ticketCount').textContent=list.length;
+  $('allBugsList').innerHTML=list.slice().reverse().map(bugCard).join('')||'<div class="empty-state"><h3>还没有记录 Bug</h3><p>确认检测问题或按 B 手动记录后，Bug 会显示在这里。</p></div>';
+  $('bugListScope').textContent=reportContext?'本报告全部视频 · 按记录时间排列':'当前视频队列 · 按记录时间排列';
+  $('draftSummary').textContent=drafts.length?`${drafts.length} 个 Bug 待提交`:(list.length?'本次 Bug 已全部提交':'暂无待提交 Bug');
+  $('reviewSummary').textContent=drafts.length?`已复核 ${reviewed.length} / ${drafts.length} · 请逐条检查片段与证据`:'确认问题后，在此集中复核并提交';
+  $('submitAllBugs').disabled=!drafts.length||reviewed.length!==drafts.length;
+  $('submitAllBugs').textContent=drafts.length?`正式提交（${drafts.length}）`:'正式提交';
+  renderFrameBugs();
+}
+function setSidebarView(view){
+  sidebarView=view;
+  $('currentPane').hidden=view!=='current';$('allBugsPane').hidden=view!=='all';
+  $('currentTab').setAttribute('aria-selected',String(view==='current'));$('allBugsTab').setAttribute('aria-selected',String(view==='all'));
+  $('currentSummary').hidden=view==='all';
+  renderBugSidebar();
+}
+async function replayTicket(t){
+  const play=()=>{seek(t.clip.start);replayEnd=t.clip.end;video.play().catch(()=>toast('请点击播放继续。'));};
+  if(t.recordingKey===recordingKey&&duration){play();return;}
+  const index=recordingQueue.findIndex(entry=>entry.key===t.recordingKey);
+  if(index<0){toast(`请先选择原录屏：${t.recording}`);return;}
+  const ready=()=>{video.removeEventListener('loadedmetadata',ready);play();};
+  video.addEventListener('loadedmetadata',ready,{once:true});
+  await loadRecording(index);
+}
+function editTicket(t){
+  openModal('编辑 Bug 草稿',`<form id="editTicketForm"><div class="field"><label for="editTitle">问题标题</label><input id="editTitle" required maxlength="120" value="${escapeHtml(t.title)}"></div><div class="field-row"><div class="field"><label for="editQa">审核人</label><input id="editQa" required value="${escapeHtml(t.qa)}"></div><div class="field"><label for="editPriority">优先级</label><select id="editPriority">${['P2 · 一般','P1 · 严重','P0 · 阻塞','P3 · 轻微'].map(v=>`<option ${v===t.priority?'selected':''}>${v}</option>`).join('')}</select></div></div><div class="field"><label for="editNotes">备注信息</label><textarea id="editNotes" rows="5">${escapeHtml(t.notes)}</textarea></div><p class="modal-caption">修改后需要重新复核。原片段、截图与附件保持关联。</p><div class="modal-action-row"><button class="button primary" type="submit">保存修改</button></div></form>`);
+  $('editTicketForm').onsubmit=e=>{e.preventDefault();const title=$('editTitle').value.trim(),qa=$('editQa').value.trim();if(!title||!qa)return;t.title=title;t.qa=qa;t.priority=$('editPriority').value;t.notes=$('editNotes').value.trim();t.reviewedAt=null;persist();renderCurrent(true);renderBugSidebar();closeModal();};
+}
+async function handleTicketAction(e){
+  const button=e.target.closest('[data-ticket-action]');if(!button)return;
+  const t=scopedTickets().find(t=>t.id===button.dataset.id);if(!t)return;
+  const action=button.dataset.ticketAction;
+  if(action==='replay')await replayTicket(t);
+  if(action==='evidence')await handleEvidenceAction({target:{closest:selector=>selector==='[data-evidence]'?{dataset:{evidence:t.id}}:null}});
+  if(action==='edit'&&t.submissionStatus!=='submitted')editTicket(t);
+  if(action==='review'&&t.submissionStatus!=='submitted'){t.reviewedAt=t.reviewedAt?null:new Date().toISOString();persist();renderCurrent(true);renderBugSidebar();}
+}
+function confirmSubmission(){
+  const drafts=scopedTickets().filter(t=>t.submissionStatus!=='submitted');
+  if(!drafts.length||drafts.some(t=>!t.reviewedAt)){setSidebarView('all');toast('请先逐条复核右侧全部 Bug。');return;}
+  const ids=drafts.map(t=>t.id);
+  openModal(`正式提交 ${drafts.length} 个 Bug`, `<p class="submission-intro">以下 Bug 已完成复核，将统一标记为已提交。</p><ol class="submission-list">${drafts.map(t=>`<li><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.recording)} · ${fmt(t.point)} · ${escapeHtml(t.priority)}</small></li>`).join('')}</ol><p class="modal-caption">当前为交互演示，提交结果保存在本机，未连接外部 Bug 系统。</p><div class="modal-action-row"><button class="button subtle" id="returnToReview">返回复核</button><button class="button primary" id="confirmSubmitBugs">确认提交</button></div>`);
+  $('returnToReview').onclick=()=>{closeModal();setSidebarView('all');};
+  $('confirmSubmitBugs').onclick=()=>{
+    const pending=scopedTickets().filter(t=>ids.includes(t.id)&&t.submissionStatus!=='submitted');
+    if(pending.length!==ids.length||pending.some(t=>!t.reviewedAt)){closeModal();renderBugSidebar();toast('草稿状态已变化，请重新复核。');return;}
+    const submittedAt=new Date().toISOString();pending.forEach(t=>{t.submissionStatus='submitted';t.submittedAt=submittedAt;});
+    persist();renderCurrent(true);renderBugSidebar();closeModal();setSidebarView('all');toast(`已完成 ${pending.length} 个 Bug 的本地演示提交。`);
+  };
+}
+$('currentTab').onclick=()=>setSidebarView('current');$('allBugsTab').onclick=()=>setSidebarView('all');
+$('allBugsList').onclick=$('frameBugs').onclick=handleTicketAction;
+$('submitAllBugs').onclick=confirmSubmission;
+for(const tab of [$('currentTab'),$('allBugsTab')])tab.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();e.stopPropagation();const all=tab.id==='currentTab';setSidebarView(all?'all':'current');$(all?'allBugsTab':'currentTab').focus();}};

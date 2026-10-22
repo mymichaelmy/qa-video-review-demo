@@ -90,8 +90,8 @@ function makeIssues(){
   const entry=recordingQueue[queueIndex];
   const matching=reportContext?seeds.filter(x=>reportContext.checks.includes(types[x[0]].name)):seeds;
   const pool=matching.length?matching:seeds;
-  const detectionSeeds=reportContext?Array.from({length:entry.findingCount},(_,i)=>{const x=[...pool[i%pool.length]];const start=.025+i/Math.max(1,entry.findingCount)*.94;x[1]=start;x[2]=Math.min(.995,start+Math.min(.04,.7/Math.max(1,entry.findingCount)));return x;}):seeds;
-  issues=detectionSeeds.map((x,i)=>({id:`finding-${i+1}`,type:x[0],start:duration*x[1],end:duration*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
+  const detectionSeeds=reportContext&&reportContext.demoDataset!=='full-demo-v1'?Array.from({length:entry.findingCount},(_,i)=>{const x=[...pool[i%pool.length]];const start=.025+i/Math.max(1,entry.findingCount)*.94;x[1]=start;x[2]=Math.min(.995,start+Math.min(.04,.7/Math.max(1,entry.findingCount)));return x;}):seeds;
+  issues=detectionSeeds.map((x,i)=>({id:reportContext?.demoDataset==='full-demo-v1'?`demo-v1-${i+1}`:`finding-${i+1}`,type:x[0],start:duration*x[1],end:duration*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
   $('metaDuration').textContent=fmt(duration);$('totalTime').textContent=fmt(duration);
   $('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;
   $('scrubber').max=duration;
@@ -178,7 +178,7 @@ function updateProgress(){
 }
 function persistReportProgress(){
   if(!reportContext||!recordingQueue.length)return;
-  const storageKey='qa-report-progress:'+reportContext.id;
+  const storageKey='qa-report-progress:'+reportContext.id+(reportContext.demoDataset?':'+reportContext.demoDataset:'');
   let progress={};try{progress=JSON.parse(localStorage.getItem(storageKey)||'{}');}catch{}
   progress.videos=progress.videos||{};
   if(recordingKey&&issues.length===recordingQueue[queueIndex]?.findingCount){
@@ -281,7 +281,8 @@ $('bugType').innerHTML=types.map((t,i)=>`<option value="${i}">${t.name}</option>
 function openBug(issue){
   if(!duration){toast('请先选择本地录屏，待加载完成后再提单。');return;}
   returnFocus=document.activeElement;wasPlaying=!video.paused;video.pause();
-  selectedIssue=issue||activeIssues().find(x=>!decisions[x.id])||null;
+  selectedIssue=issue||null;
+  $('drawerTitle').textContent=selectedIssue?'确认检测问题':'人工新建 Bug';
   clipPoint=video.currentTime;padding=2;previewing=false;attachments=[];
   $('bugForm').reset();$('attachmentList').innerHTML='';
   $('qaName').value=tickets.at(-1)?.qa||'';
@@ -336,7 +337,7 @@ $('bugForm').onsubmit=async e=>{
   if(!title||!qa){toast('请填写问题标题和审核人。');button.disabled=false;return;}
   saving=true;
   const id=`DEMO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-  const ticket={id,title,submissionStatus:'draft',reviewedAt:null,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
+  const ticket={id,title,source:selectedIssue?'detected':'manual',submissionStatus:'draft',reviewedAt:null,type:Number($('bugType').value)>=0?types[Number($('bugType').value)].name:'其他 / 人工发现',priority:$('priority').value,qa,acceptance:$('acceptance').value,notes:$('notes').value.trim(),recording:recordingName,recordingKey,reportId:reportContext?.id||null,reportName:reportContext?.name||null,log:logFile?.name||'demo.log',demoLog:!logFile,point:clipPoint,clip:{start:clipStart,end:clipEnd,padding,kind:'source_time_range'},findingId:selectedIssue?.id||null,attachments:attachments.map(f=>({name:f.name,size:f.size,type:f.type})),createdAt:new Date().toISOString(),demo:true};
   try{
     const shot=await screenshot();
     const fallbackLog=new Blob([`DEMO LOG — 示例数据，非真实测试日志\nRecording: ${recordingName}\nEvent point: ${clipPoint.toFixed(3)}s\nClip: ${clipStart.toFixed(3)}s – ${clipEnd.toFixed(3)}s\nType: ${ticket.type}\n`],{type:'text/plain'});
@@ -470,7 +471,7 @@ function scopedTickets(){
 }
 function bugCard(t){
   const submitted=t.submissionStatus==='submitted';
-  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status ${submitted?'submitted':t.reviewedAt?'reviewed':''}">${submitted?'已提交 · 演示':t.reviewedAt?'已复核 · 待提交':'待复核 · 草稿'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="replay" data-id="${escapeHtml(t.id)}">回看片段</button><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button>${!submitted?`<button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button>`:''}</div>${!submitted?`<button class="review-check ${t.reviewedAt?'checked':''}" data-ticket-action="review" data-id="${escapeHtml(t.id)}" aria-pressed="${!!t.reviewedAt}">${icon('check')}${t.reviewedAt?'已复核，点击取消':'标记已复核'}</button>`:''}</article>`;
+  return `<article class="bug-review-card ${latestTicketId===t.id?'just-added':''}" data-ticket-id="${escapeHtml(t.id)}"><div class="bug-card-top"><span class="bug-status ${submitted?'submitted':t.reviewedAt?'reviewed':''}">${submitted?'已提交 · 演示':t.reviewedAt?'已复核 · 待提交':'待复核 · 草稿'}</span><span>${escapeHtml(t.priority)}</span></div><h3>${escapeHtml(t.title)}</h3><p class="bug-card-source">${escapeHtml(t.recording)} · ${fmt(t.point,true)}</p><p class="bug-card-type">${t.source==='manual'||!t.findingId?'人工发现':'检测确认'} · ${escapeHtml(t.type)} · ${escapeHtml(t.qa)}</p>${t.notes?`<p class="bug-card-notes">${escapeHtml(t.notes)}</p>`:''}<div class="bug-evidence-line">问题截图 · ${escapeHtml(t.log)} · ${t.attachments.length} 个补充附件</div><div class="bug-card-actions"><button data-ticket-action="replay" data-id="${escapeHtml(t.id)}">回看片段</button><button data-ticket-action="evidence" data-id="${escapeHtml(t.id)}">证据 / 附件</button>${!submitted?`<button data-ticket-action="edit" data-id="${escapeHtml(t.id)}">编辑</button>`:''}</div>${!submitted?`<button class="review-check ${t.reviewedAt?'checked':''}" data-ticket-action="review" data-id="${escapeHtml(t.id)}" aria-pressed="${!!t.reviewedAt}">${icon('check')}${t.reviewedAt?'已复核，点击取消':'标记已复核'}</button>`:''}</article>`;
 }
 function renderFrameBugs(){
   const list=scopedTickets().filter(t=>t.recordingKey===recordingKey&&video.currentTime>=t.clip.start&&video.currentTime<=t.clip.end&&!activeIssues().some(x=>decisions[x.id]?.ticketId===t.id));

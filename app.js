@@ -55,6 +55,7 @@ let tickets=Array.isArray(saved.tickets)?saved.tickets:[];
 let reviews=saved.reviews||{},decisions={},watched=new Set();
 let recordingName='',recordingKey='',recordingUrl='',recordingFile=null;
 let recordingQueue=[],queueIndex=-1;
+const decisionDrafts=new Map();
 let sidebarView='current',latestTicketId=null,reviewFilter='all',queueMetadataBusy=false,pendingFindingConfirmation=null;
 let editingTicket=null,editingEvidence=null,clipDuration=0,pendingTicketSeek=null;
 const reportContext=window.REVIEW_REPORT||null;
@@ -70,9 +71,9 @@ function persist(reviewUpdates={}){
     reviews={...reviews,...latest.reviews,...reviewUpdates};
     if(recordingKey)reviews[recordingKey]={decisions,watched:[...watched]};
     tickets=[...new Map([...(latest.tickets||[]),...tickets,...(latest.tickets||[]).filter(t=>t.cancelledAt)].map(ticket=>[ticket.id,ticket])).values()];
-    localStorage.setItem('qa-pages-demo-v1',JSON.stringify({tickets,reviews}));persistReportProgress();
+    localStorage.setItem('qa-pages-demo-v1',JSON.stringify({tickets,reviews}));persistReportProgress();return true;
   }
-  catch{toast('浏览器存储空间不足，当前更改仅在本次页面中保留。');}
+  catch{toast('浏览器存储空间不足，当前更改仅在本次页面中保留。');return false;}
 }
 function toast(message){clearTimeout(toastTimeout);$('toast').textContent=message;$('toast').hidden=false;toastTimeout=setTimeout(()=>$('toast').hidden=true,4200);}
 function updateCounts(){
@@ -494,40 +495,56 @@ function detectionCard(x,entry,showRecording){
   const key=entry.key,t=types[x.type],d=reviewFor(key).decisions[x.id];
   const ticket=scopedTickets().find(t=>t.recordingKey===key&&t.id===d?.ticketId);
   let actions=isHandled(d)?(ticket?`<div class="handled-state"><span>${icon('check')}已确认 Bug</span><button data-ticket-action="edit" data-id="${escapeHtml(ticket.id)}">编辑</button><button data-ticket-action="undo" data-id="${escapeHtml(ticket.id)}" data-undo="${x.id}">撤销</button></div>`:`<div class="handled-state"><span>${icon('check')}${d.status==='reported'?'已确认 Bug':d.status==='ignored'?'已跳过':'已标记误检'}</span><button data-undo="${x.id}">撤销</button></div>`):`<div class="issue-actions"><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button><button class="button subtle" data-dismiss="${x.id}">误检</button><button class="button subtle" data-ignore="${x.id}">跳过</button></div>`;
-  if(['ignored','false_positive','dismissed'].includes(d?.status))actions+=`<label class="decision-note"><span>${d.status==='ignored'?'跳过':'误检'}备注（可选）<small>自动保存</small></span><textarea rows="2" maxlength="1000" data-decision-note="${x.id}" data-recording-key="${escapeHtml(key)}" placeholder="补充判断原因…">${escapeHtml(d.note||'')}</textarea></label>`;
+  const draft=decisionDrafts.get(JSON.stringify([key,x.id]));
+  if(draft&&!isHandled(d)){
+    const label=draft.status==='ignored'?'跳过':'误检';
+    actions=`<div class="decision-composer"><label class="decision-note"><span>${label}备注（可选）</span><textarea rows="2" maxlength="1000" data-decision-draft-note="${x.id}" data-recording-key="${escapeHtml(key)}" placeholder="填写原因，与处理结果一起提交…">${escapeHtml(draft.note)}</textarea></label><div class="decision-composer-actions"><button class="button subtle" data-decision-cancel="${x.id}">取消</button><button class="button primary" data-decision-confirm="${x.id}">确认${label}</button></div></div>`;
+  }else if(['ignored','false_positive','dismissed'].includes(d?.status)&&d.note){
+    actions+=`<p class="decision-note-saved"><span>备注</span>${escapeHtml(d.note)}</p>`;
+  }
   return reviewCard({type:t,title:ticket?.title||x.title,description:x.description,range:x.end?`${fmt(x.start,true)} — ${fmt(x.end,true)}`:'载入录屏后显示时间',rangeNote:x.end?`${(x.end-x.start).toFixed(1)} 秒`:'',context:t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步',actions,ticket,recording:showRecording?entry.name:'',findingRef:{key,id:x.id}});
 }
 function saveReview(key,review){
   if(key===recordingKey)decisions=review.decisions;
-  persist({[key]:review});
+  return persist({[key]:review});
 }
 function refreshReviewCards(){renderCurrent(true);renderTracks();updateCounts();}
 async function handleReviewClick(e){
   if(e.target.closest('[data-ticket-action]'))return handleTicketAction(e);
   const card=e.target.closest('[data-review-finding]');
   const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),ignore=e.target.closest('[data-ignore]'),undo=e.target.closest('[data-undo]');
-  const action=report||dismiss||ignore||undo;
+  const confirmDecision=e.target.closest('[data-decision-confirm]'),cancelDecision=e.target.closest('[data-decision-cancel]');
+  const action=report||dismiss||ignore||undo||confirmDecision||cancelDecision;
   if(!card&&!action)return handleTicketAction(e);
   const key=card?.dataset.reviewKey||recordingKey;
   const entry=recordingQueue.find(entry=>entry.key===key);if(!entry)return;
-  const id=action?(report?.dataset.report||dismiss?.dataset.dismiss||ignore?.dataset.ignore||undo?.dataset.undo):card.dataset.reviewFinding;
+  const id=action?(report?.dataset.report||dismiss?.dataset.dismiss||ignore?.dataset.ignore||undo?.dataset.undo||confirmDecision?.dataset.decisionConfirm||cancelDecision?.dataset.decisionCancel):card.dataset.reviewFinding;
   const finding=entryFindings(entry).find(x=>x.id===id);if(!finding)return;
   if(report){if(sidebarView==='current'&&key===recordingKey)return openBug(finding);return jumpToFinding(entry,finding,true);}
   if(saving)return;
-  const review=reviewFor(key),previous=review.decisions[id];
+  const review=reviewFor(key),previous=review.decisions[id],draftKey=JSON.stringify([key,id]);
+  if(cancelDecision){decisionDrafts.delete(draftKey);refreshReviewCards();return;}
+  if(confirmDecision){
+    const draft=decisionDrafts.get(draftKey);if(!draft||isHandled(previous))return;
+    const updated={...review,decisions:{...review.decisions,[id]:{status:draft.status,note:draft.note.trim(),handledAt:new Date().toISOString()}}};
+    if(saveReview(key,updated)===false){
+      if(key===recordingKey)decisions=review.decisions;else reviews[key]=review;
+      refreshReviewCards();return;
+    }
+    decisionDrafts.delete(draftKey);refreshReviewCards();toast(draft.status==='ignored'?'已跳过，备注已随处理结果保存。':'已标记误检，备注已随处理结果保存。');return;
+  }
   if(undo){
     const ticket=scopedTickets().find(t=>t.id===previous?.ticketId);
     if(ticket){undoTicket(ticket);return;}
-    delete review.decisions[id];saveReview(key,review);refreshReviewCards();return;
+    decisionDrafts.delete(draftKey);delete review.decisions[id];saveReview(key,review);refreshReviewCards();return;
   }
   if(dismiss||ignore){
+    if(isHandled(previous))return;
     video.pause();const status=dismiss?'false_positive':'ignored';
-    review.decisions[id]={status,note:previous?.note||''};saveReview(key,review);
-    // Keep the just-handled card visible so its optional note can be entered.
-    if(sidebarView==='all'&&reviewFilter!=='all')reviewFilter=status;
+    decisionDrafts.set(draftKey,{status,note:decisionDrafts.get(draftKey)?.note||''});
     refreshReviewCards();
     const root=sidebarView==='all'?$('allBugsList'):$('currentIssues');
-    [...root.querySelectorAll('[data-decision-note]')].find(el=>el.dataset.decisionNote===id&&el.dataset.recordingKey===key)?.focus();
+    [...root.querySelectorAll('[data-decision-draft-note]')].find(el=>el.dataset.decisionDraftNote===id&&el.dataset.recordingKey===key)?.focus();
     return;
   }
   if(e.target.closest('button,a,input,select,textarea,label'))return;
@@ -551,14 +568,13 @@ function finishFindingConfirmation(){
 video.addEventListener('seeked',finishFindingConfirmation);
 $('reviewStatusFilter').onchange=e=>{reviewFilter=e.target.value;renderBugSidebar();$('reviewListScroll').scrollTop=0;};
 for(const id of ['currentIssues','allBugsList']){
-  $(id).onfocusin=e=>{if(e.target.dataset?.decisionNote)video.pause();};
+  $(id).onfocusin=e=>{if(e.target.dataset?.decisionDraftNote)video.pause();};
   $(id).oninput=e=>{
-    const el=e.target;if(!el.dataset?.decisionNote)return;
-    const key=el.dataset.recordingKey,review=reviewFor(key),decision=review.decisions[el.dataset.decisionNote];
-    if(!decision||!['ignored','false_positive','dismissed'].includes(decision.status))return;
-    decision.note=el.value.slice(0,1000);saveReview(key,review);
-    // Update the other tab without replacing the focused field.
-    document.querySelectorAll('[data-decision-note]').forEach(other=>{if(other!==el&&other.dataset.recordingKey===key&&other.dataset.decisionNote===el.dataset.decisionNote)other.value=decision.note;});
+    const el=e.target;if(!el.dataset?.decisionDraftNote)return;
+    const key=el.dataset.recordingKey,draft=decisionDrafts.get(JSON.stringify([key,el.dataset.decisionDraftNote]));
+    if(!draft)return;
+    draft.note=el.value.slice(0,1000);
+    document.querySelectorAll('[data-decision-draft-note]').forEach(other=>{if(other!==el&&other.dataset.recordingKey===key&&other.dataset.decisionDraftNote===el.dataset.decisionDraftNote)other.value=draft.note;});
   };
 }
 function loadQueueMetadata(){

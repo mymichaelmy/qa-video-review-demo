@@ -489,7 +489,10 @@ function allReviewRows(){
     }
   }
   for(const ticket of scopedTickets())if(!used.has(ticket.id))rows.push({ticket,status:'reported'});
-  return rows;
+  const videoOrder=new Map(recordingQueue.map((entry,index)=>[entry.key,index]));
+  const rowKey=row=>row.entry?.key||row.ticket.recordingKey;
+  const rowTime=row=>{const time=row.finding?.start??row.ticket.point;return Number.isFinite(time)?time:Infinity;};
+  return rows.sort((a,b)=>(videoOrder.get(rowKey(a))??recordingQueue.length)-(videoOrder.get(rowKey(b))??recordingQueue.length)||rowTime(a)-rowTime(b));
 }
 function detectionCard(x,entry,showRecording){
   const key=entry.key,t=types[x.type],d=reviewFor(key).decisions[x.id];

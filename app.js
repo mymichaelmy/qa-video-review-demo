@@ -55,7 +55,7 @@ let tickets=Array.isArray(saved.tickets)?saved.tickets:[];
 let reviews=saved.reviews||{},decisions={},watched=new Set();
 let recordingName='',recordingKey='',recordingUrl='',recordingFile=null;
 let recordingQueue=[],queueIndex=-1;
-let sidebarView='current',latestTicketId=null;
+let sidebarView='current',latestTicketId=null,reviewFilter='all',queueMetadataBusy=false,pendingFindingConfirmation=null;
 let editingTicket=null,editingEvidence=null,clipDuration=0,pendingTicketSeek=null;
 const reportContext=window.REVIEW_REPORT||null;
 const handledStatuses=new Set(['reported','ignored','false_positive','dismissed']);
@@ -80,6 +80,12 @@ function updateCounts(){
   updateProgress();
 }
 function activeIssues(){return issues.filter(x=>shownTypes.has(x.type)&&video.currentTime>=x.start&&video.currentTime<x.end);}
+function buildRecordingIssues(entry,length){
+  const matching=reportContext?seeds.filter(x=>reportContext.checks.includes(types[x[0]].name)):seeds;
+  const pool=matching.length?matching:seeds;
+  const detectionSeeds=reportContext&&reportContext.demoDataset!=='full-demo-v1'?Array.from({length:entry.findingCount},(_,i)=>{const x=[...pool[i%pool.length]];const start=.025+i/Math.max(1,entry.findingCount)*.94;x[1]=start;x[2]=Math.min(.995,start+Math.min(.04,.7/Math.max(1,entry.findingCount)));return x;}):seeds;
+  return detectionSeeds.map((x,i)=>({id:reportContext?.demoDataset==='full-demo-v1'?`demo-v1-${i+1}`:`finding-${i+1}`,type:x[0],start:length*x[1],end:length*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
+}
 function makeIssues(){
   duration=Number.isFinite(video.duration)?video.duration:0;
   if(!duration){toast('无法读取视频时长，请更换一个文件。');return;}
@@ -87,10 +93,7 @@ function makeIssues(){
   $('sidebarCreateBug').disabled=false;$('scrubber').disabled=false;$('playButton').disabled=false;
   $('emptyState').querySelector('h3').textContent='当前画面暂无疑似问题';
   const entry=recordingQueue[queueIndex];
-  const matching=reportContext?seeds.filter(x=>reportContext.checks.includes(types[x[0]].name)):seeds;
-  const pool=matching.length?matching:seeds;
-  const detectionSeeds=reportContext&&reportContext.demoDataset!=='full-demo-v1'?Array.from({length:entry.findingCount},(_,i)=>{const x=[...pool[i%pool.length]];const start=.025+i/Math.max(1,entry.findingCount)*.94;x[1]=start;x[2]=Math.min(.995,start+Math.min(.04,.7/Math.max(1,entry.findingCount)));return x;}):seeds;
-  issues=detectionSeeds.map((x,i)=>({id:reportContext?.demoDataset==='full-demo-v1'?`demo-v1-${i+1}`:`finding-${i+1}`,type:x[0],start:duration*x[1],end:duration*x[2],title:x[3],description:x[4],box:x[5],confidence:x[6]})).sort((a,b)=>a.start-b.start);
+  entry.duration=duration;issues=buildRecordingIssues(entry,duration);
   $('metaDuration').textContent=fmt(duration);$('totalTime').textContent=fmt(duration);
   $('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;
   $('scrubber').max=duration;
@@ -134,12 +137,7 @@ function renderCurrent(force=false){
   $('currentSummary').textContent=current.length?`${current.length} 处疑似问题 · 与当前播放时间同步`:'随视频播放，同步展示疑似问题';
   const next=issues.find(x=>x.start>video.currentTime&&shownTypes.has(x.type)&&!isHandled(decisions[x.id]));
   $('jumpFirst').disabled=!next;$('jumpFirst').textContent='下一个问题';$('jumpFirst').title=next?`${types[next.type].name} · ${fmt(next.start,true)}`:'已无后续未处理问题';
-  $('currentIssues').innerHTML=current.map(x=>{
-    const t=types[x.type],d=decisions[x.id];
-    const ticket=tickets.find(ticket=>ticket.id===d?.ticketId&&!ticket.cancelledAt);
-    const actions=isHandled(d)?`<div class="handled-state"><span>${icon('check')} ${d.status==='reported'?'已确认 Bug':d.status==='ignored'?'已跳过':'已标记误报'}</span>${d.status==='reported'&&ticket?`<button data-ticket-action="edit" data-id="${escapeHtml(d.ticketId)}">编辑</button>`:''}<button data-undo="${x.id}">撤销</button></div>`:`<div class="issue-actions"><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button><button class="button subtle" data-dismiss="${x.id}">误报</button><button class="button subtle" data-ignore="${x.id}">跳过</button></div>`;
-    return reviewCard({type:t,title:ticket?.title||x.title,description:x.description,range:`${fmt(x.start,true)} — ${fmt(x.end,true)}`,rangeNote:`${(x.end-x.start).toFixed(1)} 秒`,context:t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步',actions,ticket});
-  }).join('');
+  $('currentIssues').innerHTML=current.map(x=>detectionCard(x,recordingQueue[queueIndex]||{key:recordingKey,name:recordingName},false)).join('');
   const visible=$('showMarks').checked?current.filter(x=>!['dismissed','ignored','false_positive'].includes(decisions[x.id]?.status)):[];
   $('annotations').innerHTML=visible.filter(x=>x.box).map(x=>`<button class="annotation-box" data-box="${x.id}" style="left:${x.box[0]*100}%;top:${x.box[1]*100}%;width:${x.box[2]*100}%;height:${x.box[3]*100}%;--issue-color:${types[x.type].color}" aria-label="${types[x.type].name}，查看问题"><span>${types[x.type].name} · 疑似</span></button>`).join('');
   const globals=visible.filter(x=>types[x.type].global);
@@ -173,7 +171,7 @@ function updateProgress(){
   $('reviewPercent').innerHTML=`${handled}<span> / ${total}</span>`;
   $('reviewProgress').style.width=`${pct}%`;
   const counts=status=>issues.filter(x=>decisions[x.id]?.status===status).length;
-  $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 跳过 ${counts('ignored')} · 误报 ${counts('false_positive')+counts('dismissed')}`;
+  $('reviewCoverage').textContent=`确认 Bug ${counts('reported')} · 跳过 ${counts('ignored')} · 误检 ${counts('false_positive')+counts('dismissed')}`;
 }
 function persistReportProgress(){
   if(!reportContext||!recordingQueue.length)return;
@@ -266,14 +264,7 @@ $('filterButton').onclick=()=>{$('filterPopover').hidden=!$('filterPopover').hid
 $('typeFilters').onchange=e=>{const i=Number(e.target.dataset.type);e.target.checked?shownTypes.add(i):shownTypes.delete(i);renderTracks();renderCurrent(true);};
 $('selectAllTypes').onclick=()=>{shownTypes=shownTypes.size?new Set():new Set(types.map((_,i)=>i));renderTracks();renderCurrent(true);};
 document.addEventListener('click',e=>{if(!e.target.closest('#filterPopover')&&!e.target.closest('#filterButton'))$('filterPopover').hidden=true;});
-$('currentIssues').onclick=e=>{
-  if(e.target.closest('[data-ticket-action]')||e.target.closest('[data-ticket-id]')&&!e.target.closest('[data-undo]')){handleTicketAction(e);return;}
-  const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),ignore=e.target.closest('[data-ignore]'),undo=e.target.closest('[data-undo]'),jump=e.target.closest('[data-jump]');
-  if(report)openBug(issues.find(x=>x.id===report.dataset.report));
-  if(dismiss||ignore){const id=dismiss?dismiss.dataset.dismiss:ignore.dataset.ignore;if(!issues.some(x=>x.id===id))return;decisions[id]={status:dismiss?'false_positive':'ignored'};persist();renderCurrent(true);renderTracks();updateCounts();toast(dismiss?'已标记误报，计入已处理；可撤销。':'已跳过，计入已处理；可撤销。');}
-  if(undo)undoFinding(undo.dataset.undo);
-  if(jump)seek(issues.find(x=>x.id===jump.dataset.jump).start+.04);
-};
+$('currentIssues').onclick=handleReviewClick;
 $('annotations').onclick=e=>{const b=e.target.closest('[data-box]');if(b){video.pause();const x=issues.find(x=>x.id===b.dataset.box);toast(`${types[x.type].name}：请在右侧查看详情或确认提单。`);}};
 $('bugType').innerHTML=types.map((t,i)=>`<option value="${i}">${t.name}</option>`).join('')+'<option value="-1">其他 / 人工发现</option>';
 function openBug(issue){
@@ -429,7 +420,7 @@ function syncQueue(){
 }
 async function loadRecording(index){
   const entry=recordingQueue[index];if(!entry)return;
-  if(pendingTicketSeek?.recordingKey!==entry.key)pendingTicketSeek=null;
+  if(pendingTicketSeek?.recordingKey!==entry.key){pendingTicketSeek=null;pendingFindingConfirmation=null;}
   video.pause();clipVideo.pause();persist();
   const oldUrl=recordingUrl;
   queueIndex=index;
@@ -454,7 +445,7 @@ async function loadRecording(index){
 function addRecordings(files){
   const valid=[...files].filter(file=>file.type.startsWith('video/')||/\.(mp4|mov|webm|m4v)$/i.test(file.name));
   if(!valid.length){if(files.length)toast('请选择视频文件。');return;}
-  if(reportContext){recordingQueue[queueIndex].file=valid[0];loadRecording(queueIndex);toast('已替换当前视频源，文件仅在本机读取。');return;}
+  if(reportContext){recordingQueue[queueIndex].file=valid[0];delete recordingQueue[queueIndex].duration;delete recordingQueue[queueIndex].metadataError;loadRecording(queueIndex);toast('已替换当前视频源，文件仅在本机读取。');return;}
   let first=-1;
   for(const file of valid){
     const key=JSON.stringify([file.name,file.size,file.lastModified]);
@@ -479,9 +470,118 @@ syncQueue();
 function scopedTickets(){
   return tickets.filter(t=>!t.cancelledAt&&(reportContext?t.reportId===reportContext.id:!t.reportId&&recordingQueue.some(entry=>entry.key===t.recordingKey)));
 }
-function reviewCard({type,title,description='',range,rangeNote='',context,actions,ticket=null,recording=''}){
+function reviewFor(key){return key===recordingKey?{decisions,watched:[...watched]}:(reviews[key]||{decisions:{},watched:[]});}
+function entryFindings(entry){
+  if(entry.key===recordingKey&&duration)return issues;
+  const length=entry.duration||(!entry.file&&entry.url&&entry.url===recordingQueue[queueIndex]?.url&&!recordingFile?duration:0);
+  return buildRecordingIssues(entry,length||0);
+}
+function allReviewRows(){
+  const used=new Set(),rows=[];
+  for(const entry of recordingQueue){
+    const review=reviewFor(entry.key);
+    for(const finding of entryFindings(entry)){
+      const decision=review.decisions[finding.id];
+      const ticket=scopedTickets().find(t=>t.recordingKey===entry.key&&t.id===decision?.ticketId);
+      if(ticket)used.add(ticket.id);
+      rows.push({entry,finding,ticket,status:decision?.status==='dismissed'?'false_positive':isHandled(decision)?decision.status:'pending'});
+    }
+  }
+  for(const ticket of scopedTickets())if(!used.has(ticket.id))rows.push({ticket,status:'reported'});
+  return rows;
+}
+function detectionCard(x,entry,showRecording){
+  const key=entry.key,t=types[x.type],d=reviewFor(key).decisions[x.id];
+  const ticket=scopedTickets().find(t=>t.recordingKey===key&&t.id===d?.ticketId);
+  let actions=isHandled(d)?(ticket?`<div class="handled-state"><span>${icon('check')}已确认 Bug</span><button data-ticket-action="edit" data-id="${escapeHtml(ticket.id)}">编辑</button><button data-ticket-action="undo" data-id="${escapeHtml(ticket.id)}" data-undo="${x.id}">撤销</button></div>`:`<div class="handled-state"><span>${icon('check')}${d.status==='reported'?'已确认 Bug':d.status==='ignored'?'已跳过':'已标记误检'}</span><button data-undo="${x.id}">撤销</button></div>`):`<div class="issue-actions"><button class="button confirm" data-report="${x.id}">${icon('plus')}确认并提单</button><button class="button subtle" data-dismiss="${x.id}">误检</button><button class="button subtle" data-ignore="${x.id}">跳过</button></div>`;
+  if(['ignored','false_positive','dismissed'].includes(d?.status))actions+=`<label class="decision-note"><span>${d.status==='ignored'?'跳过':'误检'}备注（可选）<small>自动保存</small></span><textarea rows="2" maxlength="1000" data-decision-note="${x.id}" data-recording-key="${escapeHtml(key)}" placeholder="补充判断原因…">${escapeHtml(d.note||'')}</textarea></label>`;
+  return reviewCard({type:t,title:ticket?.title||x.title,description:x.description,range:x.end?`${fmt(x.start,true)} — ${fmt(x.end,true)}`:'载入录屏后显示时间',rangeNote:x.end?`${(x.end-x.start).toFixed(1)} 秒`:'',context:t.global?'全画面检测 · 不显示局部框选':'局部检测 · 画面框选与时间同步',actions,ticket,recording:showRecording?entry.name:'',findingRef:{key,id:x.id}});
+}
+function saveReview(key,review){
+  if(key===recordingKey)decisions=review.decisions;
+  persist({[key]:review});
+}
+function refreshReviewCards(){renderCurrent(true);renderTracks();updateCounts();}
+async function handleReviewClick(e){
+  if(e.target.closest('[data-ticket-action]'))return handleTicketAction(e);
+  const card=e.target.closest('[data-review-finding]');
+  const report=e.target.closest('[data-report]'),dismiss=e.target.closest('[data-dismiss]'),ignore=e.target.closest('[data-ignore]'),undo=e.target.closest('[data-undo]');
+  const action=report||dismiss||ignore||undo;
+  if(!card&&!action)return handleTicketAction(e);
+  const key=card?.dataset.reviewKey||recordingKey;
+  const entry=recordingQueue.find(entry=>entry.key===key);if(!entry)return;
+  const id=action?(report?.dataset.report||dismiss?.dataset.dismiss||ignore?.dataset.ignore||undo?.dataset.undo):card.dataset.reviewFinding;
+  const finding=entryFindings(entry).find(x=>x.id===id);if(!finding)return;
+  if(report){if(sidebarView==='current'&&key===recordingKey)return openBug(finding);return jumpToFinding(entry,finding,true);}
+  if(saving)return;
+  const review=reviewFor(key),previous=review.decisions[id];
+  if(undo){
+    const ticket=scopedTickets().find(t=>t.id===previous?.ticketId);
+    if(ticket){undoTicket(ticket);return;}
+    delete review.decisions[id];saveReview(key,review);refreshReviewCards();return;
+  }
+  if(dismiss||ignore){
+    video.pause();const status=dismiss?'false_positive':'ignored';
+    review.decisions[id]={status,note:previous?.note||''};saveReview(key,review);
+    // Keep the just-handled card visible so its optional note can be entered.
+    if(sidebarView==='all'&&reviewFilter!=='all')reviewFilter=status;
+    refreshReviewCards();
+    const root=sidebarView==='all'?$('allBugsList'):$('currentIssues');
+    [...root.querySelectorAll('[data-decision-note]')].find(el=>el.dataset.decisionNote===id&&el.dataset.recordingKey===key)?.focus();
+    return;
+  }
+  if(e.target.closest('button,a,input,select,textarea,label'))return;
+  const ticket=scopedTickets().find(t=>t.id===previous?.ticketId);
+  return ticket?jumpToTicket(ticket):jumpToFinding(entry,finding,false);
+}
+async function jumpToFinding(entry,finding,confirm){
+  if(saving||!$('bugOverlay').hidden||!$('modalOverlay').hidden)return;
+  pendingFindingConfirmation=null;
+  pendingTicketSeek={recordingKey:entry.key,point:finding.start+.04,findingId:finding.id,confirm};
+  if(entry.key===recordingKey&&duration){finishTicketSeek();return;}
+  await loadRecording(recordingQueue.indexOf(entry));
+}
+function finishFindingConfirmation(){
+  if(!pendingFindingConfirmation||video.seeking)return;
+  const target=pendingFindingConfirmation;pendingFindingConfirmation=null;
+  if(target.key!==recordingKey)return;
+  const finding=issues.find(x=>x.id===target.id);
+  if(finding&&!isHandled(decisions[finding.id]))openBug(finding);
+}
+video.addEventListener('seeked',finishFindingConfirmation);
+$('reviewStatusFilter').onchange=e=>{reviewFilter=e.target.value;renderBugSidebar();$('reviewListScroll').scrollTop=0;};
+for(const id of ['currentIssues','allBugsList']){
+  $(id).onfocusin=e=>{if(e.target.dataset?.decisionNote)video.pause();};
+  $(id).oninput=e=>{
+    const el=e.target;if(!el.dataset?.decisionNote)return;
+    const key=el.dataset.recordingKey,review=reviewFor(key),decision=review.decisions[el.dataset.decisionNote];
+    if(!decision||!['ignored','false_positive','dismissed'].includes(decision.status))return;
+    decision.note=el.value.slice(0,1000);saveReview(key,review);
+    // Update the other tab without replacing the focused field.
+    document.querySelectorAll('[data-decision-note]').forEach(other=>{if(other!==el&&other.dataset.recordingKey===key&&other.dataset.decisionNote===el.dataset.decisionNote)other.value=decision.note;});
+  };
+}
+function loadQueueMetadata(){
+  if(queueMetadataBusy||sidebarView!=='all'||!document.createElement)return;
+  const entry=recordingQueue.find(x=>x.key!==recordingKey&&!x.duration&&!x.metadataError&&(x.file||x.url));if(!entry)return;
+  if(!entry.file&&entry.url===recordingQueue[queueIndex]?.url&&!recordingFile&&duration){entry.duration=duration;renderBugSidebar();loadQueueMetadata();return;}
+  queueMetadataBusy=true;
+  const probe=document.createElement('video'),source=entry.file||entry.url,url=entry.file?URL.createObjectURL(entry.file):entry.url;
+  let finished=false;
+  const done=()=>{
+    if(finished)return;finished=true;clearTimeout(timer);
+    if(source===(entry.file||entry.url)){
+      if(Number.isFinite(probe.duration)&&probe.duration>0)entry.duration=probe.duration;else entry.metadataError=true;
+    }
+    probe.removeAttribute('src');probe.load();if(entry.file)URL.revokeObjectURL(url);
+    queueMetadataBusy=false;renderBugSidebar();loadQueueMetadata();
+  };
+  const timer=setTimeout(done,15000);probe.onloadedmetadata=done;probe.onerror=done;probe.preload='metadata';probe.src=url;probe.load();
+}
+
+function reviewCard({type,title,description='',range,rangeNote='',context,actions,ticket=null,recording='',findingRef=null}){
   const attributes=ticket?`data-ticket-id="${escapeHtml(ticket.id)}" tabindex="0" role="group" aria-label="${escapeHtml(title)}，按回车定位问题" title="点击定位问题时间"`:'';
-  return `<article class="issue-card" ${attributes} style="--issue-color:${type.color}"><div class="issue-card-head"><span class="type-tag">${icon(type.global?'alert':'scan')}${escapeHtml(type.name)}</span></div><h3>${escapeHtml(title)}</h3>${description?`<p class="issue-description">${escapeHtml(description)}</p>`:''}<div class="issue-metrics"><span>${escapeHtml(range)}</span><span>${escapeHtml(rangeNote)}</span></div>${recording?`<p class="issue-recording">${escapeHtml(recording)}</p>`:''}<div class="issue-context">${icon(type.global?'expand':'scan')}${escapeHtml(context)}</div>${actions}</article>`;
+  return `<article class="issue-card" ${attributes} ${findingRef?`data-review-key="${escapeHtml(findingRef.key)}" data-review-finding="${escapeHtml(findingRef.id)}" ${ticket?'':'tabindex="0" role="group" title="点击定位问题时间"'}`:''} style="--issue-color:${type.color}"><div class="issue-card-head"><span class="type-tag">${icon(type.global?'alert':'scan')}${escapeHtml(type.name)}</span></div><h3>${escapeHtml(title)}</h3>${description?`<p class="issue-description">${escapeHtml(description)}</p>`:''}<div class="issue-metrics"><span>${escapeHtml(range)}</span><span>${escapeHtml(rangeNote)}</span></div>${recording?`<p class="issue-recording">${escapeHtml(recording)}</p>`:''}<div class="issue-context">${icon(type.global?'expand':'scan')}${escapeHtml(context)}</div>${actions}</article>`;
 }
 function bugCard(t){
   const detected=!!t.findingId||t.source==='detected';
@@ -497,10 +597,11 @@ function renderFrameBugs(){
   $('emptyState').hidden=activeIssues().length>0||list.length>0;
 }
 function renderBugSidebar(){
-  const list=scopedTickets();
-  $('ticketCount').textContent=list.length;
-  $('allBugsList').innerHTML=list.slice().reverse().map(bugCard).join('')||'<div class="empty-state"><h3>还没有记录 Bug</h3><p>确认检测问题或按 B 手动记录后，Bug 会显示在这里。</p></div>';
-  $('bugListScope').textContent=reportContext?'本报告全部视频 · 按记录时间排列':'当前视频队列 · 按记录时间排列';
+  const rows=allReviewRows(),filtered=rows.filter(row=>reviewFilter==='all'||row.status===reviewFilter);
+  $('ticketCount').textContent=rows.length;
+  $('reviewStatusFilter').value=reviewFilter;
+  $('allBugsList').innerHTML=filtered.map(row=>row.finding?detectionCard(row.finding,row.entry,true):bugCard(row.ticket)).join('')||'<div class="empty-state"><h3>当前筛选暂无问题</h3><p>可切换筛选，或继续回看视频。</p></div>';
+  $('bugListScope').textContent=`${reportContext?'本报告全部视频':'当前视频队列'} · ${filtered.length} / ${rows.length} 个问题`;
   renderFrameBugs();
 }
 function setSidebarView(view){
@@ -509,6 +610,7 @@ function setSidebarView(view){
   $('currentTab').setAttribute('aria-selected',String(view==='current'));$('allBugsTab').setAttribute('aria-selected',String(view==='all'));
   $('currentSummary').hidden=view==='all';
   $('jumpFirst').hidden=view==='all';
+  if(view==='all')loadQueueMetadata();
   renderBugSidebar();
 }
 function undoFinding(id){
@@ -563,7 +665,9 @@ function finishTicketSeek(){
   const target=pendingTicketSeek;
   if(!target||target.recordingKey!==recordingKey||!duration)return;
   pendingTicketSeek=null;
-  video.pause();seek(target.point);syncPlayback();
+  const finding=target.findingId?issues.find(x=>x.id===target.findingId):null;
+  video.pause();seek(finding?finding.start+.04:target.point);syncPlayback();
+  if(target.confirm&&finding){pendingFindingConfirmation={key:recordingKey,id:finding.id};finishFindingConfirmation();}
 }
 async function jumpToTicket(t){
   if(saving||!$('bugOverlay').hidden||!$('modalOverlay').hidden)return;
@@ -571,6 +675,7 @@ async function jumpToTicket(t){
   if(index<0){toast(`请先选择原录屏：${t.recording}`);return;}
   const point=Number(t.point);
   if(!Number.isFinite(point))return;
+  pendingFindingConfirmation=null;
   pendingTicketSeek={recordingKey:t.recordingKey,point};
   if(t.recordingKey===recordingKey){finishTicketSeek();return;}
   await loadRecording(index);
@@ -591,15 +696,15 @@ async function handleTicketAction(e){
 }
 function handleTicketKey(e){
   if(e.key!=='Enter'&&e.key!==' ')return;
-  const card=e.target.closest('[data-ticket-id]');
+  const card=e.target.closest('[data-ticket-id]')||e.target.closest('[data-review-finding]');
   if(!card)return;
   if(e.target!==card){e.stopPropagation();return;}
   e.preventDefault();e.stopPropagation();
-  if(!e.repeat)handleTicketAction(e);
+  if(!e.repeat)handleReviewClick(e);
 }
 for(const id of ['allBugsList','frameBugs','currentIssues'])$(id).onkeydown=handleTicketKey;
 $('currentTab').onclick=()=>setSidebarView('current');$('allBugsTab').onclick=()=>setSidebarView('all');
-$('allBugsList').onclick=$('frameBugs').onclick=handleTicketAction;
+$('allBugsList').onclick=$('frameBugs').onclick=handleReviewClick;
 for(const tab of [$('currentTab'),$('allBugsTab')])tab.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();e.stopPropagation();const all=tab.id==='currentTab';setSidebarView(all?'all':'current');$(all?'allBugsTab':'currentTab').focus();}};
 
 function fitReviewPanel(){
